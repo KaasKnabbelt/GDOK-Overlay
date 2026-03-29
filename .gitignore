@@ -1,0 +1,8 @@
+build/
+.gradle/
+.idea/
+*.iml
+run/
+.mixin.out/
+.DS_Store
+Thumbs.db

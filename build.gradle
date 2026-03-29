@@ -1,0 +1,71 @@
+plugins {
+    id 'fabric-loom' version '1.15.5'
+    id 'maven-publish'
+}
+
+version = project.mod_version
+group = project.maven_group
+base.archivesName = project.archives_base_name
+
+repositories {
+    maven { url 'https://maven.fabricmc.net/' }
+    maven { url 'https://maven.terraformersmc.com/releases/' }
+    mavenCentral()
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+
+    // Java-WebSocket for the bridge server
+    include implementation('org.java-websocket:Java-WebSocket:1.5.6')
+
+    // Mod Menu integration (optional at runtime)
+    modCompileOnly("com.terraformersmc:modmenu:14.0.0-rc.2")
+}
+
+processResources {
+    inputs.property "version", project.version
+    filesMatching("fabric.mod.json") {
+        expand "version": project.version
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.release = 21
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+jar {
+    from("LICENSE") {
+        rename { "${it}_${project.archives_base_name}" }
+    }
+}
+
+// Generate mod-info.json alongside the JAR
+tasks.register('generateModInfo') {
+    dependsOn jar
+    doLast {
+        def info = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson([
+            version       : project.mod_version,
+            filename      : "${project.archives_base_name}-${project.mod_version}.jar",
+            minecraft     : project.minecraft_version,
+            loader        : "Fabric",
+            loaderVersion : "≥ ${project.loader_version}",
+            java          : "≥ 21",
+            description   : "Visualiseert je metingen en BGT-omtrekken vanuit de GDOK Viewer als overlay in Minecraft. De mod verbindt via een WebSocket-bridge met de webviewer zodat je real-time feedback krijgt in-game.",
+            dependencies  : [
+                [name: "Fabric API", url: "https://modrinth.com/mod/fabric-api"]
+            ]
+        ]))
+        file("${buildDir}/libs/mod-info.json").text = info
+    }
+}
+
+build.finalizedBy generateModInfo
