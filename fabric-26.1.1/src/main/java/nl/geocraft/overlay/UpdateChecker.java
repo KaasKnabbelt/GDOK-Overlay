@@ -71,6 +71,10 @@ public class UpdateChecker {
     }
 
     private static boolean isNewer(String latest, String current) {
+        // Strip build metadata (e.g. "1.0.4+mc1.21.11" -> "1.0.4")
+        latest = latest.split("\\+")[0];
+        current = current.split("\\+")[0];
+
         String[] l = latest.split("\\.");
         String[] c = current.split("\\.");
         int len = Math.max(l.length, c.length);
