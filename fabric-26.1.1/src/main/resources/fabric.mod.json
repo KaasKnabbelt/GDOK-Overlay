@@ -1,0 +1,26 @@
+{
+    "schemaVersion": 1,
+    "id": "geocraft-overlay",
+    "version": "${version}",
+    "name": "GDOK Overlay",
+    "description": "Visualiseert metingen en BGT-omtrekken van GDOK als overlay in Minecraft",
+    "authors": ["OfficialNyanCat"],
+    "contact": {
+        "homepage": "https://gdok.tectabuilds.nl",
+        "sources": "https://github.com/KaasKnabbelt/GDOK-Overlay"
+    },
+    "license": "MIT",
+    "icon": "assets/geocraft-overlay/icon.png",
+    "environment": "client",
+    "entrypoints": {
+        "client": ["nl.geocraft.overlay.GeoOverlayMod"],
+        "modmenu": ["nl.geocraft.overlay.ModMenuIntegration"]
+    },
+    "mixins": [],
+    "depends": {
+        "fabricloader": ">=0.18.0",
+        "fabric-api": "*",
+        "minecraft": ">=26.1",
+        "java": ">=25"
+    }
+}

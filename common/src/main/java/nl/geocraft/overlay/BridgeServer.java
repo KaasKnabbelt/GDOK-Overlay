@@ -6,6 +6,8 @@ import com.google.gson.JsonParser;
 import org.java_websocket.WebSocket;
 import org.java_websocket.handshake.ClientHandshake;
 import org.java_websocket.server.WebSocketServer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
 
@@ -15,6 +17,7 @@ import java.net.InetSocketAddress;
  */
 public class BridgeServer extends WebSocketServer {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger("geocraft-overlay");
     private final OverlayManager overlayManager;
 
     public BridgeServer(int port, OverlayManager overlayManager) {
@@ -26,12 +29,12 @@ public class BridgeServer extends WebSocketServer {
 
     @Override
     public void onOpen(WebSocket conn, ClientHandshake handshake) {
-        GeoOverlayMod.LOGGER.info("[GeoCraft Overlay] GDOK verbonden vanuit browser");
+        LOGGER.info("[GeoCraft Overlay] GDOK verbonden vanuit browser");
     }
 
     @Override
     public void onClose(WebSocket conn, int code, String reason, boolean remote) {
-        GeoOverlayMod.LOGGER.info("[GeoCraft Overlay] GDOK verbinding verbroken");
+        LOGGER.info("[GeoCraft Overlay] GDOK verbinding verbroken");
     }
 
     @Override
@@ -53,18 +56,18 @@ public class BridgeServer extends WebSocketServer {
                 case "updateY" -> handleUpdateY(msg);
             }
         } catch (Exception e) {
-            GeoOverlayMod.LOGGER.warn("[GeoCraft Overlay] Fout bij verwerken bericht: {}", e.getMessage());
+            LOGGER.warn("[GeoCraft Overlay] Fout bij verwerken bericht: {}", e.getMessage());
         }
     }
 
     @Override
     public void onError(WebSocket conn, Exception ex) {
-        GeoOverlayMod.LOGGER.error("[GeoCraft Overlay] WebSocket fout", ex);
+        LOGGER.error("[GeoCraft Overlay] WebSocket fout", ex);
     }
 
     @Override
     public void onStart() {
-        GeoOverlayMod.LOGGER.info("[GeoCraft Overlay] Bridge server gestart op poort {}", getPort());
+        LOGGER.info("[GeoCraft Overlay] Bridge server gestart op poort {}", getPort());
     }
 
     /**
@@ -107,7 +110,7 @@ public class BridgeServer extends WebSocketServer {
         }
 
         overlayManager.addOverlay(new OverlayData(id, category, blocks, y, r, g, b, a, label, tag));
-        GeoOverlayMod.LOGGER.debug("[GeoCraft Overlay] Overlay '{}' toegevoegd: {} blokken ({}) y={}", id, blocks.length, category, y);
+        LOGGER.debug("[GeoCraft Overlay] Overlay '{}' toegevoegd: {} blokken ({}) y={}", id, blocks.length, category, y);
     }
 
     private void handleRemove(JsonObject msg) {
@@ -124,6 +127,6 @@ public class BridgeServer extends WebSocketServer {
         String id = msg.get("id").getAsString();
         int y = msg.get("y").getAsInt();
         overlayManager.updateOverlayY(id, y);
-        GeoOverlayMod.LOGGER.debug("[GeoCraft Overlay] Overlay '{}' Y bijgewerkt naar {}", id, y);
+        LOGGER.debug("[GeoCraft Overlay] Overlay '{}' Y bijgewerkt naar {}", id, y);
     }
 }

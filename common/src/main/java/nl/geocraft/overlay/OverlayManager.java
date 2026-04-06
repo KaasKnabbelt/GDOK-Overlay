@@ -1,5 +1,8 @@
 package nl.geocraft.overlay;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.Collection;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -7,6 +10,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * Thread-safe store for active overlays received from the GDOK bridge.
  */
 public class OverlayManager {
+    private static final Logger LOGGER = LoggerFactory.getLogger("geocraft-overlay");
     private static final OverlayManager INSTANCE = new OverlayManager();
     private static final int MAX_OVERLAYS = 200;
     private static final int MAX_BLOCKS_PER_OVERLAY = 10_000;
@@ -19,12 +23,12 @@ public class OverlayManager {
 
     public boolean addOverlay(OverlayData overlay) {
         if (overlay.blocks().length > MAX_BLOCKS_PER_OVERLAY) {
-            GeoOverlayMod.LOGGER.warn("[GeoCraft Overlay] Overlay '{}' geweigerd: {} blokken overschrijdt limiet van {}",
+            LOGGER.warn("[GeoCraft Overlay] Overlay '{}' geweigerd: {} blokken overschrijdt limiet van {}",
                     overlay.id(), overlay.blocks().length, MAX_BLOCKS_PER_OVERLAY);
             return false;
         }
         if (!overlays.containsKey(overlay.id()) && overlays.size() >= MAX_OVERLAYS) {
-            GeoOverlayMod.LOGGER.warn("[GeoCraft Overlay] Overlay '{}' geweigerd: max {} overlays bereikt",
+            LOGGER.warn("[GeoCraft Overlay] Overlay '{}' geweigerd: max {} overlays bereikt",
                     overlay.id(), MAX_OVERLAYS);
             return false;
         }

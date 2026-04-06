@@ -2,11 +2,11 @@ package nl.geocraft.overlay;
 
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
+import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
-import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents;
-import net.minecraft.client.option.KeyBinding;
-import net.minecraft.client.util.InputUtil;
+import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
+import net.minecraft.client.KeyMapping;
+import com.mojang.blaze3d.platform.InputConstants;
 import com.google.gson.JsonObject;
 import org.lwjgl.glfw.GLFW;
 import org.slf4j.Logger;
@@ -18,54 +18,48 @@ public class GeoOverlayMod implements ClientModInitializer {
 
     private BridgeServer bridgeServer;
 
-    private static final KeyBinding SETTINGS_KEY = KeyBindingHelper.registerKeyBinding(
-            new KeyBinding("GDOK Settings", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_G, KeyBinding.Category.MISC)
+    private static final KeyMapping SETTINGS_KEY = KeyMappingHelper.registerKeyMapping(
+            new KeyMapping("GDOK Settings", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_G, KeyMapping.Category.MISC)
     );
 
-    private static final KeyBinding Y_UP_KEY = KeyBindingHelper.registerKeyBinding(
-            new KeyBinding("GDOK Overlay omhoog", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_PAGE_UP, KeyBinding.Category.MISC)
+    private static final KeyMapping Y_UP_KEY = KeyMappingHelper.registerKeyMapping(
+            new KeyMapping("GDOK Overlay omhoog", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_PAGE_UP, KeyMapping.Category.MISC)
     );
 
-    private static final KeyBinding Y_DOWN_KEY = KeyBindingHelper.registerKeyBinding(
-            new KeyBinding("GDOK Overlay omlaag", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_PAGE_DOWN, KeyBinding.Category.MISC)
+    private static final KeyMapping Y_DOWN_KEY = KeyMappingHelper.registerKeyMapping(
+            new KeyMapping("GDOK Overlay omlaag", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_PAGE_DOWN, KeyMapping.Category.MISC)
     );
 
     @Override
     public void onInitializeClient() {
         LOGGER.info("[GeoCraft Overlay] Mod wordt geladen...");
 
-        // Load config
         OverlayConfig.getInstance().load();
 
         OverlayManager overlayManager = OverlayManager.getInstance();
 
-        // Start WebSocket bridge server
         bridgeServer = new BridgeServer(4945, overlayManager);
         bridgeServer.start();
 
-        // Register world render event for drawing overlays
         OverlayRenderer renderer = new OverlayRenderer(overlayManager);
-        WorldRenderEvents.BEFORE_DEBUG_RENDER.register(renderer::render);
+        LevelRenderEvents.COLLECT_SUBMITS.register(renderer::render);
 
-        // Check for updates when player joins a world/server
         ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
             UpdateChecker.onPlayerJoin();
         });
 
-        // Keybinds
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
-            while (SETTINGS_KEY.wasPressed()) {
+            while (SETTINGS_KEY.consumeClick()) {
                 client.setScreen(new OverlaySettingsScreen());
             }
-            while (Y_UP_KEY.wasPressed()) {
+            while (Y_UP_KEY.consumeClick()) {
                 adjustHeight(overlayManager, 1, client);
             }
-            while (Y_DOWN_KEY.wasPressed()) {
+            while (Y_DOWN_KEY.consumeClick()) {
                 adjustHeight(overlayManager, -1, client);
             }
         });
 
-        // Clean up on shutdown
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             try {
                 if (bridgeServer != null) {
@@ -79,16 +73,14 @@ public class GeoOverlayMod implements ClientModInitializer {
         LOGGER.info("[GeoCraft Overlay] WebSocket bridge actief op poort 4945");
     }
 
-    private void adjustHeight(OverlayManager overlayManager, int delta, net.minecraft.client.MinecraftClient client) {
+    private void adjustHeight(OverlayManager overlayManager, int delta, net.minecraft.client.Minecraft client) {
         overlayManager.adjustAllY(delta);
 
-        // Notify player
         if (client.player != null) {
             String sign = delta > 0 ? "+" : "";
-            client.player.sendMessage(net.minecraft.text.Text.literal("§b[GDOK] §fOverlay Y " + sign + delta), true);
+            client.player.sendOverlayMessage(net.minecraft.network.chat.Component.literal("\u00A7a\u00A7l[GDOK] \u00A7fOverlay Y " + sign + delta));
         }
 
-        // Sync back to GDOK website
         for (OverlayData overlay : overlayManager.getOverlays()) {
             JsonObject msg = new JsonObject();
             msg.addProperty("type", "overlay");

@@ -3,6 +3,8 @@ package nl.geocraft.overlay;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import net.fabricmc.loader.api.FabricLoader;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -14,6 +16,7 @@ import java.nio.file.Path;
  */
 public class OverlayConfig {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger("geocraft-overlay");
     private static final OverlayConfig INSTANCE = new OverlayConfig();
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
@@ -31,14 +34,9 @@ public class OverlayConfig {
         this.opacityPercent = Math.max(0, Math.min(100, percent));
     }
 
-    /**
-     * Returns the opacity as a 0.0–1.0 float multiplier.
-     */
     public float getOpacityMultiplier() {
         return opacityPercent / 100f;
     }
-
-    // ── Persistence ──────────────────────────────────────
 
     private static Path configPath() {
         return FabricLoader.getInstance().getConfigDir().resolve("geocraft-overlay.json");
@@ -54,7 +52,7 @@ public class OverlayConfig {
                 opacityPercent = Math.max(0, Math.min(100, data.opacityPercent));
             }
         } catch (IOException e) {
-            GeoOverlayMod.LOGGER.warn("[GeoCraft Overlay] Kon config niet laden: {}", e.getMessage());
+            LOGGER.warn("[GeoCraft Overlay] Kon config niet laden: {}", e.getMessage());
         }
     }
 
@@ -64,7 +62,7 @@ public class OverlayConfig {
             data.opacityPercent = opacityPercent;
             Files.writeString(configPath(), GSON.toJson(data));
         } catch (IOException e) {
-            GeoOverlayMod.LOGGER.warn("[GeoCraft Overlay] Kon config niet opslaan: {}", e.getMessage());
+            LOGGER.warn("[GeoCraft Overlay] Kon config niet opslaan: {}", e.getMessage());
         }
     }
 

@@ -4,5 +4,6 @@ build/
 *.iml
 run/
 .mixin.out/
+net/
 .DS_Store
 Thumbs.db

@@ -1,0 +1,51 @@
+plugins {
+    id 'net.fabricmc.fabric-loom' version '1.15.5'
+}
+
+version = "${rootProject.mod_version}+mc${project.minecraft_version}"
+group = rootProject.maven_group
+base.archivesName = "${rootProject.archives_base_name}"
+
+repositories {
+    maven { url 'https://maven.fabricmc.net/' }
+    maven { url 'https://maven.terraformersmc.com/releases/' }
+    mavenCentral()
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+
+    // Common module
+    implementation project(':common')
+    include project(':common')
+
+    // Java-WebSocket (bundled via common, but needs to be included in jar)
+    include 'org.java-websocket:Java-WebSocket:1.5.6'
+
+    // Mod Menu integration (optional at runtime)
+    compileOnly("com.terraformersmc:modmenu:18.0.0-alpha.8")
+}
+
+processResources {
+    inputs.property "version", project.version
+    filesMatching("fabric.mod.json") {
+        expand "version": project.version
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.release = 25
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_25
+    targetCompatibility = JavaVersion.VERSION_25
+}
+
+jar {
+    from("${rootDir}/LICENSE") {
+        rename { "${it}_${rootProject.archives_base_name}" }
+    }
+}
