@@ -8,7 +8,6 @@ import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.HoverEvent;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.chat.Component;
-import net.minecraft.ChatFormatting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -98,19 +97,16 @@ public class UpdateChecker {
         mc.execute(() -> {
             if (mc.player == null) return;
 
-            MutableComponent prefix = Component.literal("[GDOK] ").withStyle(ChatFormatting.GREEN, ChatFormatting.BOLD);
-
-            MutableComponent message = Component.literal("Er is een nieuwe versie beschikbaar: ")
-                    .withStyle(ChatFormatting.YELLOW)
-                    .append(Component.literal("v" + latest).withStyle(ChatFormatting.GREEN, ChatFormatting.BOLD))
-                    .append(Component.literal(" (jij hebt v" + current + "). ").withStyle(ChatFormatting.YELLOW))
-                    .append(Component.literal("[Download]")
-                            .withStyle(ChatFormatting.AQUA, ChatFormatting.UNDERLINE)
+            MutableComponent message = Component.literal(Messages.PREFIX)
+                    .append(Component.literal(Messages.updateAvailableIntro()))
+                    .append(Component.literal(Messages.updateAvailableLatest(latest)))
+                    .append(Component.literal(Messages.updateAvailableCurrent(current)))
+                    .append(Component.literal(Messages.updateDownloadLabel())
                             .withStyle(style -> style
                                     .withClickEvent(new ClickEvent.OpenUrl(URI.create(downloadUrl)))
                                     .withHoverEvent(new HoverEvent.ShowText(Component.literal(downloadUrl)))));
 
-            mc.player.sendSystemMessage(prefix.append(message));
+            mc.player.sendSystemMessage(message);
         });
     }
 }

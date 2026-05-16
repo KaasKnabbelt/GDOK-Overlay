@@ -21,6 +21,8 @@ public class OverlayConfig {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     private int opacityPercent = 50;
+    private boolean shareLocation = false;
+    private boolean sameLevel = true;
 
     public static OverlayConfig getInstance() {
         return INSTANCE;
@@ -38,6 +40,23 @@ public class OverlayConfig {
         return opacityPercent / 100f;
     }
 
+    public boolean isShareLocation() {
+        return shareLocation;
+    }
+
+    public void setShareLocation(boolean value) {
+        this.shareLocation = value;
+    }
+
+    public boolean isSameLevel() {
+        return sameLevel;
+    }
+
+    public void setSameLevel(boolean value) {
+        this.sameLevel = value;
+        OverlayManager.getInstance().setSameLevel(value);
+    }
+
     private static Path configPath() {
         return FabricLoader.getInstance().getConfigDir().resolve("geocraft-overlay.json");
     }
@@ -50,6 +69,9 @@ public class OverlayConfig {
             ConfigData data = GSON.fromJson(json, ConfigData.class);
             if (data != null) {
                 opacityPercent = Math.max(0, Math.min(100, data.opacityPercent));
+                shareLocation = data.shareLocation;
+                sameLevel = data.sameLevel;
+                OverlayManager.getInstance().setSameLevel(sameLevel);
             }
         } catch (IOException e) {
             LOGGER.warn("[GeoCraft Overlay] Kon config niet laden: {}", e.getMessage());
@@ -60,6 +82,8 @@ public class OverlayConfig {
         try {
             ConfigData data = new ConfigData();
             data.opacityPercent = opacityPercent;
+            data.shareLocation = shareLocation;
+            data.sameLevel = sameLevel;
             Files.writeString(configPath(), GSON.toJson(data));
         } catch (IOException e) {
             LOGGER.warn("[GeoCraft Overlay] Kon config niet opslaan: {}", e.getMessage());
@@ -68,5 +92,7 @@ public class OverlayConfig {
 
     private static class ConfigData {
         int opacityPercent = 50;
+        boolean shareLocation = false;
+        boolean sameLevel = true;
     }
 }

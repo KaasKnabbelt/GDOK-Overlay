@@ -4,7 +4,10 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.java_websocket.WebSocket;
+import org.java_websocket.drafts.Draft;
+import org.java_websocket.exceptions.InvalidDataException;
 import org.java_websocket.handshake.ClientHandshake;
+import org.java_websocket.handshake.ServerHandshakeBuilder;
 import org.java_websocket.server.WebSocketServer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,22 +22,74 @@ public class BridgeServer extends WebSocketServer {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("geocraft-overlay");
     private final OverlayManager overlayManager;
+    private static java.util.function.Consumer<String> commandRunner;
+    private static BridgeServer instance;
+
+    public static BridgeServer getInstance() {
+        return instance;
+    }
+
+    /**
+     * Register a callback that runs a chat command in-game. The callback is
+     * version-specific (different MC API per loader/MC version) and is responsible
+     * for dispatching to the client thread.
+     */
+    public static void setCommandRunner(java.util.function.Consumer<String> runner) {
+        commandRunner = runner;
+    }
 
     public BridgeServer(int port, OverlayManager overlayManager) {
         super(new InetSocketAddress("127.0.0.1", port));
         this.overlayManager = overlayManager;
         setReuseAddr(true);
         setDaemon(true);
+        instance = this;
+    }
+
+    @Override
+    public ServerHandshakeBuilder onWebsocketHandshakeReceivedAsServer(WebSocket conn, Draft draft, ClientHandshake request) throws InvalidDataException {
+        ServerHandshakeBuilder builder = super.onWebsocketHandshakeReceivedAsServer(conn, draft, request);
+        builder.put("Access-Control-Allow-Private-Network", "true");
+        return builder;
     }
 
     @Override
     public void onOpen(WebSocket conn, ClientHandshake handshake) {
         LOGGER.info("[GeoCraft Overlay] GDOK verbonden vanuit browser");
+        // Send current gate status so the browser knows immediately
+        conn.send(buildGateMessage(ServerGate.getInstance().isAllowed()).toString());
     }
 
     @Override
     public void onClose(WebSocket conn, int code, String reason, boolean remote) {
         LOGGER.info("[GeoCraft Overlay] GDOK verbinding verbroken");
+    }
+
+    /**
+     * Broadcast the current server gate status to all connected browsers.
+     */
+    public void broadcastGateStatus(boolean allowed) {
+        broadcastMessage(buildGateMessage(allowed));
+    }
+
+    /**
+     * Vraag verbonden GDOK-viewers om alle actieve overlays opnieuw te sturen.
+     * Wordt gebruikt na een server-join: de mod heeft zijn overlay-store gewist, dus
+     * de viewer moet de tekenwerk opnieuw insturen zodat alles direct zichtbaar is.
+     */
+    public void requestOverlaySync() {
+        JsonObject msg = new JsonObject();
+        msg.addProperty("type", "overlay");
+        msg.addProperty("action", "requestSync");
+        broadcastMessage(msg);
+    }
+
+    private JsonObject buildGateMessage(boolean allowed) {
+        JsonObject msg = new JsonObject();
+        msg.addProperty("type", "world");
+        msg.addProperty("action", allowed ? "allowed" : "blocked");
+        if (!allowed) msg.addProperty("reason", "not-geocraft-world");
+        return msg;
     }
 
     @Override
@@ -45,15 +100,19 @@ public class BridgeServer extends WebSocketServer {
 
             if ("pong".equals(type)) return;
 
-            if (!"overlay".equals(type)) return;
-
             String action = msg.get("action").getAsString();
 
-            switch (action) {
-                case "add" -> handleAdd(msg);
-                case "remove" -> handleRemove(msg);
-                case "clear" -> handleClear(msg);
-                case "updateY" -> handleUpdateY(msg);
+            if ("overlay".equals(type)) {
+                switch (action) {
+                    case "add" -> handleAdd(msg);
+                    case "remove" -> handleRemove(msg);
+                    case "clear" -> handleClear(msg);
+                    case "updateY" -> handleUpdateY(msg);
+                }
+            } else if ("command".equals(type)) {
+                if ("run".equals(action)) {
+                    handleCommand(msg);
+                }
             }
         } catch (Exception e) {
             LOGGER.warn("[GeoCraft Overlay] Fout bij verwerken bericht: {}", e.getMessage());
@@ -83,6 +142,15 @@ public class BridgeServer extends WebSocketServer {
     }
 
     private void handleAdd(JsonObject msg) {
+        if (!ServerGate.getInstance().isAllowed()) {
+            JsonObject reject = new JsonObject();
+            reject.addProperty("type", "world");
+            reject.addProperty("action", "blocked");
+            reject.addProperty("reason", "not-geocraft-world");
+            broadcastMessage(reject);
+            return;
+        }
+
         String id = msg.get("id").getAsString();
         String category = msg.get("category").getAsString();
         String label = msg.has("label") ? msg.get("label").getAsString() : "";
@@ -128,5 +196,24 @@ public class BridgeServer extends WebSocketServer {
         int y = msg.get("y").getAsInt();
         overlayManager.updateOverlayY(id, y);
         LOGGER.debug("[GeoCraft Overlay] Overlay '{}' Y bijgewerkt naar {}", id, y);
+    }
+
+    private void handleCommand(JsonObject msg) {
+        // Alleen op de GeoCraft server: voorkomt dat een geopende GDOK-tab
+        // op een andere server (ander commando-namespace) iets onverwachts doet.
+        if (!ServerGate.getInstance().isAllowed()) {
+            LOGGER.debug("[GeoCraft Overlay] Command genegeerd: niet op GeoCraft server");
+            return;
+        }
+        if (commandRunner == null) {
+            LOGGER.warn("[GeoCraft Overlay] Command ontvangen maar geen runner geregistreerd");
+            return;
+        }
+        String command = msg.get("command").getAsString().trim();
+        // sendChatCommand verwacht het commando zonder leidende slash.
+        if (command.startsWith("/")) command = command.substring(1);
+        if (command.isEmpty()) return;
+        commandRunner.accept(command);
+        LOGGER.debug("[GeoCraft Overlay] Command uitgevoerd: /{}", command);
     }
 }

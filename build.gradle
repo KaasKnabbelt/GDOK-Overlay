@@ -1,6 +1,6 @@
 // Root project properties shared by all subprojects
 ext {
-    mod_version = '1.0.4'
+    mod_version = '1.0.5'
     maven_group = 'nl.geocraft'
     archives_base_name = 'GDOK-Overlay'
 }
@@ -12,20 +12,22 @@ subprojects {
 // Generate mod-info.json after building all subprojects
 tasks.register('generateModInfo') {
     doLast {
+        def releasedDate = new Date().format("yyyy-MM-dd")
         def info = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson([
             version       : mod_version,
+            released      : releasedDate,
             files         : [
                 [
                     filename  : "${archives_base_name}-${mod_version}+mc1.21.11.jar",
                     minecraft : "1.21.11",
                 ],
                 [
-                    filename  : "${archives_base_name}-${mod_version}+mc26.1.1.jar",
-                    minecraft : "26.1.1",
+                    filename  : "${archives_base_name}-${mod_version}+mc26.1.2.jar",
+                    minecraft : "26.1.2",
                 ],
             ],
             loader        : "Fabric",
-            java          : ">= 21 (1.21.11) / >= 25 (26.1.1)",
+            java          : ">= 21 (1.21.11) / >= 25 (26.1.2)",
             description   : "Visualiseert je metingen en BGT-omtrekken vanuit de GDOK Viewer als overlay in Minecraft. De mod verbindt via een WebSocket-bridge met de webviewer zodat je real-time feedback krijgt in-game.",
             dependencies  : [
                 [name: "Fabric API", url: "https://modrinth.com/mod/fabric-api"]

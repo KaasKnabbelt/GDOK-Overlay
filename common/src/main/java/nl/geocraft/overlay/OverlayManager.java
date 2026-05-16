@@ -13,31 +13,80 @@ public class OverlayManager {
     private static final Logger LOGGER = LoggerFactory.getLogger("geocraft-overlay");
     private static final OverlayManager INSTANCE = new OverlayManager();
     private static final int MAX_OVERLAYS = 200;
-    private static final int MAX_BLOCKS_PER_OVERLAY = 10_000;
+    public static final int MAX_TOTAL_BLOCKS = 100_000;
 
     private final ConcurrentHashMap<String, OverlayData> overlays = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Integer> originalYs = new ConcurrentHashMap<>();
+    private volatile boolean sameLevel = true;
 
     public static OverlayManager getInstance() {
         return INSTANCE;
     }
 
+    public void setSameLevel(boolean value) {
+        this.sameLevel = value;
+    }
+
+    public boolean isSameLevel() {
+        return sameLevel;
+    }
+
     public boolean addOverlay(OverlayData overlay) {
-        if (overlay.blocks().length > MAX_BLOCKS_PER_OVERLAY) {
-            LOGGER.warn("[GeoCraft Overlay] Overlay '{}' geweigerd: {} blokken overschrijdt limiet van {}",
-                    overlay.id(), overlay.blocks().length, MAX_BLOCKS_PER_OVERLAY);
-            return false;
-        }
-        if (!overlays.containsKey(overlay.id()) && overlays.size() >= MAX_OVERLAYS) {
+        boolean isNew = !overlays.containsKey(overlay.id());
+        if (isNew && overlays.size() >= MAX_OVERLAYS) {
             LOGGER.warn("[GeoCraft Overlay] Overlay '{}' geweigerd: max {} overlays bereikt",
                     overlay.id(), MAX_OVERLAYS);
             return false;
         }
-        overlays.put(overlay.id(), overlay);
+
+        // Onthoud de originele Y (zoals door GDOK gegenereerd) voor de reset-knop.
+        originalYs.put(overlay.id(), overlay.y());
+
+        OverlayData toStore = overlay;
+        if (isNew && sameLevel && !overlays.isEmpty()) {
+            // Zet nieuwe overlay op de gemiddelde Y van bestaande overlays.
+            int avgY = (int) Math.round(overlays.values().stream()
+                    .mapToInt(OverlayData::y).average().orElse(overlay.y()));
+            toStore = overlay.withY(avgY);
+        } else if (!isNew) {
+            // Behoud de huidige (mogelijk aangepaste) Y bij een re-send van GDOK.
+            toStore = overlay.withY(overlays.get(overlay.id()).y());
+        }
+        overlays.put(overlay.id(), toStore);
         return true;
+    }
+
+    /**
+     * Zet alle overlays terug op hun originele Y (zoals GDOK ze oorspronkelijk stuurde).
+     * Retourneert een map id → nieuwe Y voor de overlays die daadwerkelijk gewijzigd zijn,
+     * zodat de aanroeper deze waarden terug naar GDOK kan syncen.
+     */
+    public java.util.Map<String, Integer> resetAllY() {
+        java.util.Map<String, Integer> changes = new java.util.HashMap<>();
+        overlays.replaceAll((id, overlay) -> {
+            Integer originalY = originalYs.get(id);
+            if (originalY == null || originalY.intValue() == overlay.y()) return overlay;
+            changes.put(id, originalY);
+            return overlay.withY(originalY);
+        });
+        return changes;
+    }
+
+    public int getTotalBlocks() {
+        int total = 0;
+        for (OverlayData overlay : overlays.values()) {
+            total += overlay.blocks().length;
+        }
+        return total;
+    }
+
+    public boolean isOverBlockLimit() {
+        return getTotalBlocks() > MAX_TOTAL_BLOCKS;
     }
 
     public void removeOverlay(String id) {
         overlays.remove(id);
+        originalYs.remove(id);
     }
 
     public void updateOverlayY(String id, int newY) {
@@ -47,8 +96,15 @@ public class OverlayManager {
     public void clearCategory(String category) {
         if ("all".equals(category)) {
             overlays.clear();
+            originalYs.clear();
         } else {
-            overlays.entrySet().removeIf(e -> e.getValue().category().equals(category));
+            overlays.entrySet().removeIf(e -> {
+                if (e.getValue().category().equals(category)) {
+                    originalYs.remove(e.getKey());
+                    return true;
+                }
+                return false;
+            });
         }
     }
 

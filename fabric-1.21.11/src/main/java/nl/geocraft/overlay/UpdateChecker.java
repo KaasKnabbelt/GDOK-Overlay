@@ -8,7 +8,6 @@ import net.minecraft.text.ClickEvent;
 import net.minecraft.text.HoverEvent;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
-import net.minecraft.util.Formatting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -102,19 +101,16 @@ public class UpdateChecker {
         mc.execute(() -> {
             if (mc.player == null) return;
 
-            MutableText prefix = Text.literal("[GDOK] ").formatted(Formatting.GREEN, Formatting.BOLD);
-
-            MutableText message = Text.literal("Er is een nieuwe versie beschikbaar: ")
-                    .formatted(Formatting.YELLOW)
-                    .append(Text.literal("v" + latest).formatted(Formatting.GREEN, Formatting.BOLD))
-                    .append(Text.literal(" (jij hebt v" + current + "). ").formatted(Formatting.YELLOW))
-                    .append(Text.literal("[Download]")
-                            .formatted(Formatting.AQUA, Formatting.UNDERLINE)
+            MutableText message = Text.literal(Messages.PREFIX)
+                    .append(Text.literal(Messages.updateAvailableIntro()))
+                    .append(Text.literal(Messages.updateAvailableLatest(latest)))
+                    .append(Text.literal(Messages.updateAvailableCurrent(current)))
+                    .append(Text.literal(Messages.updateDownloadLabel())
                             .styled(style -> style
                                     .withClickEvent(new ClickEvent.OpenUrl(URI.create(downloadUrl)))
                                     .withHoverEvent(new HoverEvent.ShowText(Text.literal(downloadUrl)))));
 
-            mc.player.sendMessage(prefix.append(message), false);
+            mc.player.sendMessage(message, false);
         });
     }
 }

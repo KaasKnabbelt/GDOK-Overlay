@@ -38,6 +38,7 @@ public class OverlayRenderer {
     public void render(LevelRenderContext context) {
         var overlays = overlayManager.getOverlays();
         if (overlays.isEmpty()) return;
+        if (overlayManager.isOverBlockLimit()) return;
 
         Minecraft client = Minecraft.getInstance();
         if (client.player == null || client.level == null) return;

@@ -31,6 +31,7 @@ public class OverlayRenderer {
     public void render(WorldRenderContext context) {
         var overlays = overlayManager.getOverlays();
         if (overlays.isEmpty()) return;
+        if (overlayManager.isOverBlockLimit()) return;
 
         MinecraftClient client = MinecraftClient.getInstance();
         if (client.player == null || client.world == null) return;

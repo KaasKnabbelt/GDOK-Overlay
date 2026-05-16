@@ -39,13 +39,57 @@ public class GeoOverlayMod implements ClientModInitializer {
         OverlayManager overlayManager = OverlayManager.getInstance();
 
         bridgeServer = new BridgeServer(4945, overlayManager);
+        BridgeServer.setCommandRunner(command -> {
+            net.minecraft.client.Minecraft client = net.minecraft.client.Minecraft.getInstance();
+            client.execute(() -> {
+                if (client.player != null && client.player.connection != null) {
+                    client.player.connection.sendCommand(command);
+                }
+            });
+        });
         bridgeServer.start();
+        PlayerTracker.getInstance().setBridge(bridgeServer);
 
         OverlayRenderer renderer = new OverlayRenderer(overlayManager);
         LevelRenderEvents.COLLECT_SUBMITS.register(renderer::render);
 
+        BungeeCordChannel.register(serverName -> {
+            ServerGate.getInstance().setCurrentSubserver(serverName);
+            refreshPlayerTracking();
+            bridgeServer.broadcastGateStatus(ServerGate.getInstance().isAllowed());
+            // Sub-server kan gate van blocked → allowed brengen; vraag dan ook resync.
+            if (ServerGate.getInstance().isAllowed()) {
+                bridgeServer.requestOverlaySync();
+            }
+        });
+
         ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
+            ServerGate.getInstance().reset();
+            overlayManager.clearCategory("all");
+            if (client.player != null) {
+                PlayerTracker.getInstance().setPlayerInfo(
+                        client.player.getUUID(),
+                        client.player.getGameProfile().name()
+                );
+            }
+            BungeeCordChannel.requestServerName();
+            refreshPlayerTracking();
             UpdateChecker.onPlayerJoin();
+            bridgeServer.broadcastGateStatus(ServerGate.getInstance().isAllowed());
+
+            // Vraag de viewer alle overlays opnieuw te sturen, zodat ze direct
+            // zichtbaar zijn na server-join zonder dat de speler een tekening hoeft
+            // aan te raken.
+            if (ServerGate.getInstance().isAllowed()) {
+                bridgeServer.requestOverlaySync();
+            }
+        });
+
+        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
+            ServerGate.getInstance().reset();
+            overlayManager.clearCategory("all");
+            PlayerTracker.getInstance().clear();
+            bridgeServer.broadcastGateStatus(false);
         });
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
@@ -57,6 +101,22 @@ public class GeoOverlayMod implements ClientModInitializer {
             }
             while (Y_DOWN_KEY.consumeClick()) {
                 adjustHeight(overlayManager, -1, client);
+            }
+
+            if (client.player != null && client.level != null) {
+                PlayerTracker.getInstance().tick(
+                        client.player.getX(),
+                        client.player.getY(),
+                        client.player.getZ(),
+                        client.player.getYRot(),
+                        client.level.dimension().identifier().toString()
+                );
+
+                if (overlayManager.isOverBlockLimit()) {
+                    client.player.sendOverlayMessage(
+                            net.minecraft.network.chat.Component.literal(Messages.blockLimitReached(overlayManager.getTotalBlocks()))
+                    );
+                }
             }
         });
 
@@ -73,12 +133,20 @@ public class GeoOverlayMod implements ClientModInitializer {
         LOGGER.info("[GeoCraft Overlay] WebSocket bridge actief op poort 4945");
     }
 
+    /**
+     * Turn the player tracker on/off based on config + server gate.
+     */
+    public static void refreshPlayerTracking() {
+        boolean enabled = OverlayConfig.getInstance().isShareLocation()
+                && ServerGate.getInstance().isAllowed();
+        PlayerTracker.getInstance().setEnabled(enabled);
+    }
+
     private void adjustHeight(OverlayManager overlayManager, int delta, net.minecraft.client.Minecraft client) {
         overlayManager.adjustAllY(delta);
 
         if (client.player != null) {
-            String sign = delta > 0 ? "+" : "";
-            client.player.sendOverlayMessage(net.minecraft.network.chat.Component.literal("\u00A7a\u00A7l[GDOK] \u00A7fOverlay Y " + sign + delta));
+            client.player.sendOverlayMessage(net.minecraft.network.chat.Component.literal(Messages.overlayYDelta(delta)));
         }
 
         for (OverlayData overlay : overlayManager.getOverlays()) {
