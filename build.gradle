@@ -1,6 +1,6 @@
 // Root project properties shared by all subprojects
 ext {
-    mod_version = '1.0.5'
+    mod_version = '1.0.6'
     maven_group = 'nl.geocraft'
     archives_base_name = 'GDOK-Overlay'
 }

@@ -64,23 +64,36 @@ public class GeoOverlayMod implements ClientModInitializer {
         });
 
         ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
-            ServerGate.getInstance().reset();
+            ServerGate gate = ServerGate.getInstance();
+            gate.reset();
             overlayManager.clearCategory("all");
+
+            // Detect server address (primary gate check)
+            var serverData = client.getCurrentServer();
+            if (serverData != null) {
+                gate.checkServerAddress(serverData.ip);
+            } else {
+                LOGGER.info("[GeoCraft Overlay] Geen server entry (singleplayer/LAN)");
+                gate.checkServerAddress(null);
+            }
+
             if (client.player != null) {
                 PlayerTracker.getInstance().setPlayerInfo(
                         client.player.getUUID(),
                         client.player.getGameProfile().name()
                 );
             }
+
             BungeeCordChannel.requestServerName();
             refreshPlayerTracking();
             UpdateChecker.onPlayerJoin();
-            bridgeServer.broadcastGateStatus(ServerGate.getInstance().isAllowed());
+            bridgeServer.broadcastGateStatus(gate.isAllowed());
+            LOGGER.info("[GeoCraft Overlay] Gate status na join: allowed={}", gate.isAllowed());
 
             // Vraag de viewer alle overlays opnieuw te sturen, zodat ze direct
             // zichtbaar zijn na server-join zonder dat de speler een tekening hoeft
             // aan te raken.
-            if (ServerGate.getInstance().isAllowed()) {
+            if (gate.isAllowed()) {
                 bridgeServer.requestOverlaySync();
             }
         });
