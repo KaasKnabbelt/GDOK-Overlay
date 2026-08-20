@@ -56,6 +56,14 @@ fabricApi {
     }
 }
 
+// De gametest-client luistert op een eigen bridge-poort. Op 4945 zou een toevallig open
+// GDOK-viewer-tab (lokale dev-site) meeverbinden en bij requestSync zijn eigen overlays
+// insturen; die zetten dan het gedeelde niveau op AHN-hoogte en de testlaag verdwijnt uit
+// beeld. GeoOverlayMod en de test lezen allebei deze property.
+loom.runs.named("clientGameTest") {
+    property "geocraft.overlay.port", "4946"
+}
+
 processResources {
     inputs.property "version", project.version
     filesMatching("fabric.mod.json") {

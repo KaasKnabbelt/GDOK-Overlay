@@ -22,6 +22,8 @@ public class GeoOverlayMod implements ClientModInitializer {
 
     private static final int BLOCK_LIMIT_WARN_INTERVAL = 100;
     private int blockLimitWarnTicks = BLOCK_LIMIT_WARN_INTERVAL;
+    /** Ticks until the one-time "druk op G" chat hint; 0 = not armed. Delayed so the chat HUD is up. */
+    private int gKeyHintTicks = 0;
 
     private static final KeyBinding SETTINGS_KEY = KeyBindingHelper.registerKeyBinding(
             new KeyBinding("GDOK Settings", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_G, KeyBinding.Category.MISC)
@@ -51,7 +53,9 @@ public class GeoOverlayMod implements ClientModInitializer {
         ServerGate.getInstance().setDevBypass(FabricLoader.getInstance().isDevelopmentEnvironment());
 
         // Start WebSocket bridge server
-        bridgeServer = new BridgeServer(4945, overlayManager);
+        // Poort is alleen voor de gametests instelbaar (zie build.gradle); de site verbindt altijd met 4945.
+        int bridgePort = Integer.getInteger("geocraft.overlay.port", 4945);
+        bridgeServer = new BridgeServer(bridgePort, overlayManager);
         BridgeServer.setCommandRunner(command -> {
             net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
             client.execute(() -> {
@@ -79,6 +83,7 @@ public class GeoOverlayMod implements ClientModInitializer {
             // Sub-server kan gate van blocked → allowed brengen; vraag dan ook resync.
             if (ServerGate.getInstance().isAllowed()) {
                 bridgeServer.requestOverlaySync();
+                armGKeyHint();
             }
         });
 
@@ -86,7 +91,7 @@ public class GeoOverlayMod implements ClientModInitializer {
         ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
             ServerGate gate = ServerGate.getInstance();
             gate.reset();
-            overlayManager.clearCategory("all");
+            overlayManager.resetSession();
 
             // Detect server address (primary gate check)
             var serverEntry = client.getCurrentServerEntry();
@@ -118,12 +123,13 @@ public class GeoOverlayMod implements ClientModInitializer {
             // aan te raken.
             if (gate.isAllowed()) {
                 bridgeServer.requestOverlaySync();
+                armGKeyHint();
             }
         });
 
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
             ServerGate.getInstance().reset();
-            overlayManager.clearCategory("all");
+            overlayManager.resetSession();
             PlayerTracker.getInstance().clear();
             bridgeServer.broadcastGateStatus(false);
         });
@@ -133,13 +139,19 @@ public class GeoOverlayMod implements ClientModInitializer {
             renderer.tick(client);
 
             while (SETTINGS_KEY.wasPressed()) {
-                client.setScreen(new OverlaySettingsScreen());
+                client.setScreen(new OverlayManagerScreen());
             }
             while (Y_UP_KEY.wasPressed()) {
                 adjustHeight(overlayManager, 1, client);
             }
             while (Y_DOWN_KEY.wasPressed()) {
                 adjustHeight(overlayManager, -1, client);
+            }
+
+            if (gKeyHintTicks > 0 && client.player != null && --gKeyHintTicks == 0) {
+                client.player.sendMessage(net.minecraft.text.Text.literal(Messages.gKeyHint()), false);
+                OverlayConfig.getInstance().setGKeyHintShown(true);
+                OverlayConfig.getInstance().save();
             }
 
             if (client.player != null && client.world != null) {
@@ -173,7 +185,13 @@ public class GeoOverlayMod implements ClientModInitializer {
             }
         }));
 
-        LOGGER.info("[GeoCraft Overlay] WebSocket bridge actief op poort 4945");
+        LOGGER.info("[GeoCraft Overlay] WebSocket bridge actief op poort {}", bridgePort);
+    }
+
+    /** Schedule the one-time G-menu hint after the first allowed join (persisted flag, see OverlayConfig). */
+    private void armGKeyHint() {
+        if (OverlayConfig.getInstance().isGKeyHintShown() || gKeyHintTicks > 0) return;
+        gKeyHintTicks = 60;
     }
 
     /** The active renderer (diagnostics/gametests). */

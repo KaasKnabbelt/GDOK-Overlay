@@ -7,7 +7,7 @@ package nl.geocraft.overlay;
  * Fabric-loaders werken — zowel Component.literal (Mojang mappings) als Text.literal
  * (Yarn mappings) interpreteren §-codes hetzelfde.
  *
- * UI-labels van schermen (zoals OverlaySettingsScreen) horen hier NIET — alleen
+ * UI-labels van schermen (zoals OverlayManagerScreen) horen hier NIET — alleen
  * berichten die we naar de speler sturen.
  */
 public final class Messages {
@@ -33,6 +33,11 @@ public final class Messages {
     }
 
     // Chat-berichten
+
+    /** Eenmalige hint na de eerste toegestane join (zie OverlayConfig.gKeyHintShown). */
+    public static String gKeyHint() {
+        return PREFIX + "§fDruk op §a§lG§r§f om je overlays te beheren (zichtbaarheid, hoogte, vastzetten).";
+    }
 
     /** Tekst-deel van het update-bericht (zonder click-event; die wordt per loader gebouwd). */
     public static String updateAvailableIntro() {

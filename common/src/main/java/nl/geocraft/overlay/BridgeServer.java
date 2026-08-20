@@ -141,6 +141,14 @@ public class BridgeServer extends WebSocketServer {
         LOGGER.info("[GeoCraft Overlay] Bridge server gestart op poort {}", getPort());
     }
 
+    /** Is at least one GDOK viewer (browser tab) connected? Shown in the in-game menu. */
+    public boolean hasClients() {
+        for (WebSocket conn : getConnections()) {
+            if (conn.isOpen()) return true;
+        }
+        return false;
+    }
+
     /**
      * Send a JSON message to all connected GDOK clients.
      */

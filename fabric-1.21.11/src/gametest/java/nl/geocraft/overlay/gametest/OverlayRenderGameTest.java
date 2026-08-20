@@ -8,6 +8,7 @@ import nl.geocraft.overlay.GeoOverlayMod;
 import nl.geocraft.overlay.OverlayConfig;
 import nl.geocraft.overlay.OverlayData;
 import nl.geocraft.overlay.OverlayManager;
+import nl.geocraft.overlay.OverlayManagerScreen;
 import nl.geocraft.overlay.render.RenderMode;
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
@@ -122,7 +123,7 @@ public class OverlayRenderGameTest implements FabricClientGameTest {
             ctx.runOnClient(mc -> OverlayManager.getInstance().adjustAllY(-1));
 
             // 7. Prestatie: 100.000 blokken (316x316) mogen de framerate niet slopen.
-            ctx.runOnClient(mc -> OverlayManager.getInstance().clearCategory("all"));
+            ctx.runOnClient(mc -> OverlayManager.getInstance().resetSession());
             ctx.waitTicks(40);
             int fpsBaseline = averageFps(ctx, 60);
             ctx.runOnClient(mc -> OverlayManager.getInstance().addOverlay(
@@ -138,7 +139,7 @@ public class OverlayRenderGameTest implements FabricClientGameTest {
 
             // 8. Frustum-culling: met de rug naar de overlay worden er geen vertices uitgezonden.
             ctx.runOnClient(mc -> {
-                OverlayManager.getInstance().clearCategory("all");
+                OverlayManager.getInstance().resetSession();
                 OverlayManager.getInstance().addOverlay(
                         square("paint_small", "paint", 0, 0, 16, OVERLAY_Y, "magenta_wool", 255, 0, 255));
             });
@@ -162,7 +163,40 @@ public class OverlayRenderGameTest implements FabricClientGameTest {
             LOGGER.info("[gametest] na resource-reload magenta-fractie = {}", magentaReloaded);
             assertThat(magentaReloaded > 0.5, "overlay kapot na resource-reload: " + magentaReloaded);
 
-            ctx.runOnClient(mc -> OverlayManager.getInstance().clearCategory("all"));
+            // 10. Beheer-menu (G): een paar lagen met verschillende staat, scherm open, screenshot
+            //     in beide niveau-standen. De pixels worden niet gemeten; de screenshots zijn voor
+            //     de visuele controle van de layout op deze MC-versie.
+            ctx.runOnClient(mc -> {
+                OverlayManager m = OverlayManager.getInstance();
+                m.resetSession();
+                OverlayConfig.getInstance().setSameLevel(true);
+                m.addOverlay(square("paint_magenta_wool", "paint", 0, 0, 16, OVERLAY_Y, "magenta_wool", 255, 0, 255));
+                m.addOverlay(new OverlayData("paint_oak_planks", "paint", square("x", "paint", 20, 0, 40, OVERLAY_Y + 3, "oak_planks", 0, 0, 0).blocks(),
+                        OVERLAY_Y + 3, 180, 140, 80, 255, "Eiken planken (1600)", "oak_planks"));
+                m.addOverlay(new OverlayData("paint_stone", "paint", square("x", "paint", -30, -30, 8, OVERLAY_Y - 2, "stone", 0, 0, 0).blocks(),
+                        OVERLAY_Y - 2, 120, 120, 120, 255, "Steen met een behoorlijk lange naam die niet past (64)", "stone"));
+                m.addOverlay(new OverlayData("click", "click", new OverlayData.BlockPos[]{new OverlayData.BlockPos(5, 5)},
+                        OVERLAY_Y + 7, 74, 222, 128, 80, "Marker", null));
+                m.setPinned("paint_oak_planks", true);
+                m.setHidden("paint_stone", true);
+                mc.setScreen(new OverlayManagerScreen());
+            });
+            ctx.waitTicks(20);
+            ctx.takeScreenshot("10-menu-same-level");
+            ctx.runOnClient(mc -> OverlayConfig.getInstance().setSameLevel(false));
+            ctx.waitTicks(10);
+            ctx.takeScreenshot("11-menu-own-heights");
+            boolean menuOpen = ctx.computeOnClient(mc -> mc.currentScreen instanceof OverlayManagerScreen);
+            assertThat(menuOpen, "beheer-menu staat niet open");
+            ctx.runOnClient(mc -> {
+                ((OverlayManagerScreen) mc.currentScreen).close();
+                OverlayConfig.getInstance().setSameLevel(true);
+            });
+            ctx.waitTicks(5);
+            boolean menuClosed = ctx.computeOnClient(mc -> mc.currentScreen == null);
+            assertThat(menuClosed, "beheer-menu sluit niet via Klaar");
+
+            ctx.runOnClient(mc -> OverlayManager.getInstance().resetSession());
             ctx.waitTicks(5);
         }
     }
@@ -211,10 +245,10 @@ public class OverlayRenderGameTest implements FabricClientGameTest {
         return sb.toString();
     }
 
-    /** Sends one message through the real bridge on 127.0.0.1:4945, like the GDOK viewer does. */
+    /** Sends one message through the real bridge, like the GDOK viewer does (port: see build.gradle). */
     static void sendViaBridge(String json) {
         CountDownLatch opened = new CountDownLatch(1);
-        WebSocketClient client = new WebSocketClient(URI.create("ws://127.0.0.1:4945")) {
+        WebSocketClient client = new WebSocketClient(URI.create("ws://127.0.0.1:" + Integer.getInteger("geocraft.overlay.port", 4945))) {
             @Override
             public void onOpen(ServerHandshake handshake) {
                 opened.countDown();
@@ -235,7 +269,7 @@ public class OverlayRenderGameTest implements FabricClientGameTest {
         };
         try {
             client.connect();
-            assertThat(opened.await(5, TimeUnit.SECONDS), "bridge op 4945 niet bereikbaar");
+            assertThat(opened.await(5, TimeUnit.SECONDS), "bridge niet bereikbaar op poort " + Integer.getInteger("geocraft.overlay.port", 4945));
             client.send(json);
             Thread.sleep(200);
             client.close();

@@ -31,6 +31,13 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>The level is forgotten as soon as the store runs empty (site "Wissen", join/disconnect):
  * a fresh drawing somewhere else on the map should start from its own hint, not from a level
  * that belonged to the previous location.</p>
+ *
+ * <h2>Pins and hidden layers</h2>
+ * <p>Both are session-only and belong to the in-game menu. A pinned overlay survives
+ * {@link #clearCategory} (the site's "Wissen" and the menu's "Alles wissen"), but not a
+ * targeted {@link #removeOverlay} (the row's cross is explicit) and not a rejoin:
+ * {@link #resetSession()} drops everything. A hidden overlay stays in the store (the site keeps
+ * re-sending it) and is skipped by the renderer.</p>
  */
 public class OverlayManager {
     private static final Logger LOGGER = LoggerFactory.getLogger("geocraft-overlay");
@@ -40,8 +47,10 @@ public class OverlayManager {
 
     private final ConcurrentHashMap<String, OverlayData> overlays = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Integer> originalYs = new ConcurrentHashMap<>();
-    /** Overlays the player hid in-game (session-only). Hook for the renderer; managed by the menu. */
+    /** Overlays the player hid in-game (session-only). Skipped by the renderer; managed by the menu. */
     private final Set<String> hiddenIds = ConcurrentHashMap.newKeySet();
+    /** Overlays the player pinned in-game (session-only): survive clearCategory, not removeOverlay/resetSession. */
+    private final Set<String> pinnedIds = ConcurrentHashMap.newKeySet();
     private volatile boolean sameLevel = true;
     /** Shared render height while {@link #sameLevel} is on; {@code null} = not determined yet. */
     private volatile Integer levelY = null;
@@ -162,12 +171,22 @@ public class OverlayManager {
         return totalBlocks > MAX_TOTAL_BLOCKS;
     }
 
+    /** Targeted removal (site remove, or the row's cross in the menu): ignores pins. */
     public synchronized void removeOverlay(String id) {
         if (overlays.remove(id) == null) return;
         originalYs.remove(id);
         hiddenIds.remove(id);
+        pinnedIds.remove(id);
         forgetLevelIfEmpty();
         recomputeTotals();
+        bump();
+    }
+
+    /** Menu stepper for one row: always moves that overlay's own Y, regardless of "same level". */
+    public synchronized void adjustOverlayY(String id, int delta) {
+        OverlayData existing = overlays.get(id);
+        if (existing == null || delta == 0) return;
+        overlays.put(id, existing.withY(existing.y() + delta));
         bump();
     }
 
@@ -189,22 +208,32 @@ public class OverlayManager {
         bump();
     }
 
+    /**
+     * Bulk clear ("all" or one category) from the site or the menu's "Alles wissen". Pinned
+     * overlays are skipped; use {@link #resetSession()} to really start over.
+     */
     public synchronized void clearCategory(String category) {
-        if ("all".equals(category)) {
-            overlays.clear();
-            originalYs.clear();
-            hiddenIds.clear();
-        } else {
-            overlays.entrySet().removeIf(e -> {
-                if (e.getValue().category().equals(category)) {
-                    originalYs.remove(e.getKey());
-                    hiddenIds.remove(e.getKey());
-                    return true;
-                }
-                return false;
-            });
-        }
+        boolean all = "all".equals(category);
+        overlays.entrySet().removeIf(e -> {
+            String id = e.getKey();
+            if (pinnedIds.contains(id)) return false;
+            if (!all && !e.getValue().category().equals(category)) return false;
+            originalYs.remove(id);
+            hiddenIds.remove(id);
+            return true;
+        });
         forgetLevelIfEmpty();
+        recomputeTotals();
+        bump();
+    }
+
+    /** Join/disconnect: forget everything, pins and hidden state included (they are session-only). */
+    public synchronized void resetSession() {
+        overlays.clear();
+        originalYs.clear();
+        hiddenIds.clear();
+        pinnedIds.clear();
+        levelY = null;
         recomputeTotals();
         bump();
     }
@@ -224,15 +253,30 @@ public class OverlayManager {
         bump();
     }
 
-    // -- Visibility (hook for the in-game menu) --------------------
+    // -- Visibility and pins (in-game menu) --------------------------
 
     public boolean isHidden(String id) {
         return hiddenIds.contains(id);
     }
 
     public synchronized void setHidden(String id, boolean hidden) {
+        if (!overlays.containsKey(id)) return;
         boolean changed = hidden ? hiddenIds.add(id) : hiddenIds.remove(id);
         if (changed) bump();
+    }
+
+    public boolean isPinned(String id) {
+        return pinnedIds.contains(id);
+    }
+
+    public synchronized void setPinned(String id, boolean pinned) {
+        if (!overlays.containsKey(id)) return;
+        boolean changed = pinned ? pinnedIds.add(id) : pinnedIds.remove(id);
+        if (changed) bump();
+    }
+
+    public int getOverlayCount() {
+        return overlays.size();
     }
 
     // -- Rendering -------------------------------------------------

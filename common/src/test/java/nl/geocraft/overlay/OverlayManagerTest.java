@@ -18,7 +18,7 @@ class OverlayManagerTest {
 
     @BeforeEach
     void reset() {
-        mgr.clearCategory("all");
+        mgr.resetSession();
         mgr.setSameLevel(true);
         assertNull(mgr.getLevelY(), "leeg = geen niveau");
     }
@@ -178,5 +178,78 @@ class OverlayManagerTest {
         mgr.adjustAllY(1);
         mgr.clearCategory("click");
         assertEquals(41, mgr.getLevelY());
+    }
+
+    // -- Fase 4: pins, verbergen, sessie ---------------------------------
+
+    @Test
+    void pinnedSurvivesClearButNotRemoveOrReset() {
+        mgr.addOverlay(overlay("paint_a", 40, 10));
+        mgr.addOverlay(overlay("paint_b", 41, 10));
+        mgr.setPinned("paint_a", true);
+        assertTrue(mgr.isPinned("paint_a"));
+
+        mgr.clearCategory("paint"); // site-"Wissen"
+        assertEquals(1, mgr.getOverlayCount());
+        assertTrue(mgr.getOverlay("paint_a") != null);
+        assertEquals(40, mgr.getLevelY(), "niveau blijft zolang er iets staat");
+
+        mgr.addOverlay(overlay("paint_b", 41, 10));
+        mgr.clearCategory("all"); // in-game "Alles wissen (behalve vastgezet)"
+        assertEquals(1, mgr.getOverlayCount());
+
+        mgr.removeOverlay("paint_a"); // kruisje = expliciet
+        assertEquals(0, mgr.getOverlayCount());
+        assertFalse(mgr.isPinned("paint_a"));
+
+        mgr.addOverlay(overlay("paint_c", 40, 10));
+        mgr.setPinned("paint_c", true);
+        mgr.setHidden("paint_c", true);
+        mgr.resetSession(); // join/disconnect
+        assertEquals(0, mgr.getOverlayCount());
+        assertFalse(mgr.isPinned("paint_c"));
+        assertFalse(mgr.isHidden("paint_c"));
+        assertNull(mgr.getLevelY());
+    }
+
+    @Test
+    void hiddenAndPinnedNeedAnExistingOverlay() {
+        mgr.setHidden("ghost", true);
+        mgr.setPinned("ghost", true);
+        assertFalse(mgr.isHidden("ghost"));
+        assertFalse(mgr.isPinned("ghost"));
+    }
+
+    @Test
+    void rowStepperMovesOnlyThatOverlay() {
+        mgr.addOverlay(overlay("paint_a", 40, 10));
+        mgr.addOverlay(overlay("paint_b", 55, 10));
+        mgr.adjustOverlayY("paint_b", 3);
+        assertEquals(58, mgr.getOverlay("paint_b").y());
+        assertEquals(40, mgr.getOverlay("paint_a").y());
+        assertEquals(40, mgr.getLevelY(), "het gedeelde niveau blijft");
+    }
+
+    @Test
+    void menuStateRowsStripTheSiteCountAndSortMarkerFirst() {
+        mgr.addOverlay(overlay("paint_b", 40, 10)); // label = id
+        mgr.addOverlay(new OverlayData("paint_x", "paint", new OverlayData.BlockPos[]{new OverlayData.BlockPos(0, 0)},
+                40, 1, 2, 3, 80, "Oranje wol (123)", "orange_wool"));
+        mgr.addOverlay(new OverlayData("click", "click", new OverlayData.BlockPos[]{new OverlayData.BlockPos(0, 0)},
+                44, 74, 222, 128, 80, "", null));
+        mgr.setPinned("paint_x", true);
+
+        OverlayMenuState state = new OverlayMenuState(mgr, OverlayConfig.getInstance());
+        var rows = state.rows();
+        assertEquals(3, rows.size());
+        assertEquals("click", rows.get(0).id());
+        assertTrue(rows.get(0).isMarker());
+        assertEquals("Marker", rows.get(0).name());
+        assertEquals("Oranje wol", rows.get(1).name());
+        assertEquals(1, rows.get(1).blocks());
+        assertTrue(rows.get(1).pinned());
+        assertEquals("paint_b", rows.get(2).name());
+        for (var r : rows) assertEquals(40, r.renderY());
+        assertEquals(44, rows.get(0).ownY());
     }
 }
