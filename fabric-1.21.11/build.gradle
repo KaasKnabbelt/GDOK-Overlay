@@ -1,5 +1,5 @@
 plugins {
-    id 'fabric-loom' version '1.15.5'
+    id 'fabric-loom' version '1.17.19'
 }
 
 version = "${rootProject.mod_version}+mc${project.minecraft_version}"

@@ -113,7 +113,7 @@ public class GeoOverlayMod implements ClientModInitializer {
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             while (SETTINGS_KEY.consumeClick()) {
-                client.setScreen(new OverlaySettingsScreen());
+                client.gui.setScreen(new OverlaySettingsScreen());
             }
             while (Y_UP_KEY.consumeClick()) {
                 adjustHeight(overlayManager, 1, client);

@@ -8,14 +8,14 @@ De mod verbindt met de webviewer via een lokale WebSocket bridge, waardoor wijzi
 
 | | Versie |
 |---|---|
-| Minecraft | 1.21.11 of 26.1.2 |
-| Fabric Loader | >= 0.18.4 |
+| Minecraft | 1.21.11 of 26.2 |
+| Fabric Loader | >= 0.18.4 (1.21.11) / >= 0.19.3 (26.2) |
 | Fabric API | Vereist |
-| Java | >= 21 (1.21.11) / >= 25 (26.1.2) |
+| Java | >= 21 (1.21.11) / >= 25 (26.2) |
 
 ## Installatie
 
-1. Installeer [Fabric Loader](https://fabricmc.net/use/) voor Minecraft 1.21.11 of 26.1.2.
+1. Installeer [Fabric Loader](https://fabricmc.net/use/) voor Minecraft 1.21.11 of 26.2.
 2. Download [Fabric API](https://modrinth.com/mod/fabric-api) en plaats deze in je `mods/` map.
 3. Download de juiste GDOK Overlay jar voor jouw Minecraft-versie vanaf [gdok.tectabuilds.nl](https://gdok.tectabuilds.nl/viewer) en zet hem in je `mods/` map.
 

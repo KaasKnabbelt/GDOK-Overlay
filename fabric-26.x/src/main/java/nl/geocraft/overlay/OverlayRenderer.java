@@ -20,7 +20,7 @@ import java.util.Set;
 /**
  * Renders overlay blocks as thin textured slabs with neighbor-aware face culling.
  * Only exterior side faces are drawn; internal faces between adjacent overlay blocks are skipped.
- * Migrated to Minecraft 26.1.1 unobfuscated API.
+ * Minecraft 26.x (Mojang mappings).
  */
 public class OverlayRenderer {
 
@@ -84,7 +84,7 @@ public class OverlayRenderer {
             if (blockId == null) blockId = Identifier.fromNamespaceAndPath("minecraft", "white_wool");
             Block block = BuiltInRegistries.BLOCK.getValue(blockId);
             if (block == Blocks.AIR) {
-                block = Blocks.WHITE_WOOL;
+                block = Blocks.WOOL.white();
             }
             TextureAtlasSprite sprite = client.getModelManager().getBlockStateModelSet().getParticleMaterial(block.defaultBlockState()).sprite();
 

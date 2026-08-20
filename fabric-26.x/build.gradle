@@ -1,5 +1,5 @@
 plugins {
-    id 'net.fabricmc.fabric-loom' version '1.15.5'
+    id 'net.fabricmc.fabric-loom' version '1.17.19'
 }
 
 version = "${rootProject.mod_version}+mc${project.minecraft_version}"
@@ -25,7 +25,7 @@ dependencies {
     include 'org.java-websocket:Java-WebSocket:1.5.6'
 
     // Mod Menu integration (optional at runtime)
-    compileOnly("com.terraformersmc:modmenu:18.0.0-alpha.8")
+    compileOnly("com.terraformersmc:modmenu:20.0.1")
 }
 
 // Dev-workflow (zie README "Development"): runClient start een dev-client waarin de

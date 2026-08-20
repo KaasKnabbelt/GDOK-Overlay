@@ -22,12 +22,12 @@ tasks.register('generateModInfo') {
                     minecraft : "1.21.11",
                 ],
                 [
-                    filename  : "${archives_base_name}-${mod_version}+mc26.1.2.jar",
-                    minecraft : "26.1.2",
+                    filename  : "${archives_base_name}-${mod_version}+mc26.2.jar",
+                    minecraft : "26.2",
                 ],
             ],
             loader        : "Fabric",
-            java          : ">= 21 (1.21.11) / >= 25 (26.1.2)",
+            java          : ">= 21 (1.21.11) / >= 25 (26.2)",
             description   : "Visualiseert je metingen en BGT-omtrekken vanuit de GDOK Viewer als overlay in Minecraft. De mod verbindt via een WebSocket-bridge met de webviewer zodat je real-time feedback krijgt in-game.",
             dependencies  : [
                 [name: "Fabric API", url: "https://modrinth.com/mod/fabric-api"]
