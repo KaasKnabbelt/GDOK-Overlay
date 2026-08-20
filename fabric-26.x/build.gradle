@@ -28,6 +28,19 @@ dependencies {
     compileOnly("com.terraformersmc:modmenu:18.0.0-alpha.8")
 }
 
+// Dev-workflow (zie README "Development"): runClient start een dev-client waarin de
+// server-gate open staat (ServerGate.devBypass via FabricLoader.isDevelopmentEnvironment()).
+// ideConfigGenerated laat Loom ook een IDE-runconfiguratie maken, zodat je onder de
+// debugger kunt draaien en gewijzigde klassen kunt herladen zonder Minecraft te herstarten.
+loom {
+    runs {
+        client {
+            configName = "Client 26.x"
+            ideConfigGenerated = true
+        }
+    }
+}
+
 processResources {
     inputs.property "version", project.version
     filesMatching("fabric.mod.json") {

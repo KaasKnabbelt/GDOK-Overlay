@@ -1,6 +1,7 @@
 package nl.geocraft.overlay;
 
 import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
@@ -37,6 +38,11 @@ public class GeoOverlayMod implements ClientModInitializer {
         OverlayConfig.getInstance().load();
 
         OverlayManager overlayManager = OverlayManager.getInstance();
+
+        // Dev-workflow: in een Fabric-ontwikkelomgeving (runClient) staat de server-gate
+        // open, zodat singleplayer/LAN-werelden bruikbaar zijn om te testen. ServerGate
+        // logt hierbij een duidelijke waarschuwing, zodat een gelekte dev-jar herkenbaar is.
+        ServerGate.getInstance().setDevBypass(FabricLoader.getInstance().isDevelopmentEnvironment());
 
         bridgeServer = new BridgeServer(4945, overlayManager);
         BridgeServer.setCommandRunner(command -> {

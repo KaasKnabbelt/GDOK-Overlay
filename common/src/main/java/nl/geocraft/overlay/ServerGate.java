@@ -30,6 +30,12 @@ public class ServerGate {
 
     private volatile String currentSubserver = null;
     private volatile boolean geocraftAddress = false;
+    /**
+     * Development bypass: opens the gate regardless of server (singleplayer/LAN included).
+     * Only ever set by the module entrypoints when Fabric reports a development environment;
+     * common/ has no Fabric classpath, so the detection itself lives there.
+     */
+    private volatile boolean devBypass = false;
 
     public static ServerGate getInstance() {
         return INSTANCE;
@@ -64,6 +70,20 @@ public class ServerGate {
         LOGGER.info("[GeoCraft Overlay] Server adres: '{}' → geocraft={}", address, geocraftAddress);
     }
 
+    // ── Development bypass ──────────────────────────────────────
+
+    public void setDevBypass(boolean enabled) {
+        this.devBypass = enabled;
+        if (enabled) {
+            LOGGER.warn("[GeoCraft Overlay] DEV-BYPASS ACTIEF: server-gate staat open voor elke wereld "
+                    + "(singleplayer/LAN). Dit hoort alleen in een ontwikkelomgeving te gebeuren.");
+        }
+    }
+
+    public boolean isDevBypass() {
+        return devBypass;
+    }
+
     // ── Gate logic ──────────────────────────────────────────────
 
     /**
@@ -72,6 +92,7 @@ public class ServerGate {
      * - the BungeeCord sub-server is one of the known ones.
      */
     public boolean isAllowed() {
+        if (devBypass) return true;
         if (geocraftAddress) return true;
         if (currentSubserver != null
                 && KNOWN_SUBSERVERS.contains(currentSubserver.toLowerCase(Locale.ROOT))) {
@@ -80,6 +101,7 @@ public class ServerGate {
         return false;
     }
 
+    /** Resets the per-connection state; the dev bypass is process-wide and survives. */
     public void reset() {
         this.currentSubserver = null;
         this.geocraftAddress = false;

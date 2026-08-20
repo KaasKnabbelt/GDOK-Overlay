@@ -40,6 +40,36 @@ De resulterende jars zijn vervolgens voor beide versies terug te vinden in:
 
 En de overkoepelende mod info vind je in `build/mod-info.json`.
 
+## Development
+
+### Dev-client starten
+
+Elke module heeft een Loom-runconfiguratie die Minecraft met de mod start vanuit de broncode:
+
+```bash
+./gradlew :fabric-1.21.11:runClient
+./gradlew :fabric-26.x:runClient
+```
+
+In zo'n dev-client staat de **server-gate open** (`ServerGate.devBypass`, gezet zodra `FabricLoader.isDevelopmentEnvironment()` waar is), dus een singleplayer- of LAN-wereld volstaat om te testen; je hoeft niet op de GeoCraft-server te zitten. De log toont dan een waarschuwing `DEV-BYPASS ACTIEF`. In een gewone jar is die bypass nooit actief.
+
+De dev-client draait in `fabric-<versie>/run/` (gitignored). Log in op een gewone offline-wereld; de mod start de bridge op `127.0.0.1:4945`.
+
+### Hotswap in plaats van herstarten
+
+Een volledige Minecraft-herstart kost een minuut; voor render- en GUI-tweaks hoeft dat niet:
+
+1. Genereer de IDE-runconfiguraties (`./gradlew genSources` is handig voor leesbare Minecraft-broncode) en open het project in IntelliJ. Loom maakt voor elke module een runconfiguratie "Client 1.21.11" / "Client 26.x" aan.
+2. Start die configuratie **onder de debugger**.
+3. Pas code aan en kies *Run > Debugging Actions > Reload Changed Classes*. Wijzigingen in bestaande methoden (renderer, schermlayout, constanten zoals `SLAB_HEIGHT`) zijn direct zichtbaar in het draaiende spel.
+4. Aanrader: draai de dev-client op de **JetBrains Runtime** met `-XX:+AllowEnhancedClassRedefinition` (DCEVM). Dan overleven ook structurele wijzigingen (nieuwe methoden/velden) een reload.
+
+Een volledige herstart is alleen nodig bij event-registraties, entrypoints, `fabric.mod.json` en Gradle-wijzigingen.
+
+### Site-kant
+
+De GDOK Viewer verbindt altijd met `127.0.0.1:4945`, ook vanaf een lokale dev-server. Draai dus in de gdok-repo `npm run dev` (plus `php artisan serve`) en open de viewer; de verbindingsstatus linksonder wordt groen zodra de dev-client draait en een wereld geladen is.
+
 ## Licentie
 
 [MIT](LICENSE)
