@@ -92,12 +92,7 @@ public class BridgeServer extends WebSocketServer {
      */
     public void broadcastOverlayYs() {
         for (OverlayData overlay : overlayManager.getOverlays()) {
-            JsonObject msg = new JsonObject();
-            msg.addProperty("type", "overlay");
-            msg.addProperty("action", "updateY");
-            msg.addProperty("id", overlay.id());
-            msg.addProperty("y", overlayManager.getRenderY(overlay));
-            broadcastMessage(msg);
+            broadcastOverlayY(overlay.id(), overlayManager.getRenderY(overlay));
         }
     }
 
@@ -197,8 +192,25 @@ public class BridgeServer extends WebSocketServer {
             );
         }
 
-        overlayManager.addOverlay(new OverlayData(id, category, blocks, y, r, g, b, a, label, tag));
+        OverlayData overlay = new OverlayData(id, category, blocks, y, r, g, b, a, label, tag);
+        if (!overlayManager.addOverlay(overlay)) return;
         LOGGER.debug("[GeoCraft Overlay] Overlay '{}' toegevoegd: {} blokken ({}) y={}", id, blocks.length, category, y);
+
+        // De mod is eigenaar van de hoogte: meld terug waarop deze overlay écht getekend wordt
+        // (gedeeld niveau, of een eerder in-game aangepaste Y bij een herzending). Anders
+        // toont het site-paneel na elke penseelstreek weer de AHN-hint.
+        OverlayData stored = overlayManager.getOverlay(id);
+        int renderY = overlayManager.getRenderY(stored == null ? overlay : stored);
+        if (renderY != y) broadcastOverlayY(id, renderY);
+    }
+
+    private void broadcastOverlayY(String id, int y) {
+        JsonObject msg = new JsonObject();
+        msg.addProperty("type", "overlay");
+        msg.addProperty("action", "updateY");
+        msg.addProperty("id", id);
+        msg.addProperty("y", y);
+        broadcastMessage(msg);
     }
 
     private void handleRemove(JsonObject msg) {
