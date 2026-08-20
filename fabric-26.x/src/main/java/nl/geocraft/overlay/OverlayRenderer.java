@@ -1,259 +1,189 @@
 package nl.geocraft.overlay;
 
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderContext;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.rendertype.RenderType;
 import net.minecraft.client.renderer.rendertype.RenderTypes;
-import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.phys.Vec3;
-import com.mojang.blaze3d.vertex.PoseStack;
-import com.mojang.blaze3d.vertex.VertexConsumer;
+import nl.geocraft.overlay.render.BakedOverlayMesh;
+import nl.geocraft.overlay.render.MeshCache;
+import nl.geocraft.overlay.render.OccupancyProbe;
+import nl.geocraft.overlay.render.OccupancyUpdater;
+import nl.geocraft.overlay.render.RenderMode;
+import nl.geocraft.overlay.render.ViewFrustum;
 
-import java.util.HashSet;
-import java.util.Set;
+import java.util.List;
 
 /**
- * Renders overlay blocks as thin textured slabs with neighbor-aware face culling.
- * Only exterior side faces are drawn; internal faces between adjacent overlay blocks are skipped.
- * Minecraft 26.x (Mojang mappings).
+ * Thin Minecraft-side shim around the cached geometry in {@code common/}: event hook,
+ * gate/limit checks, mesh-cache reconciliation (sprite lookup only when a mesh is rebuilt),
+ * two submits with pre-allocated callbacks and the per-overlay replay. All geometry lives in
+ * {@link BakedOverlayMesh}; see {@code nl.geocraft.overlay.render}.
  */
 public class OverlayRenderer {
 
-    private static final float SLAB_HEIGHT = 0.1f;
-    private static final float Y_OFFSET = 0.005f;
-    /** Packed full-bright light value (block=15, sky=15) */
-    private static final int FULL_BRIGHT = 0xF000F0;
+    private static final Identifier BLOCK_ATLAS = Identifier.fromNamespaceAndPath("minecraft", "textures/atlas/blocks.png");
 
     private final OverlayManager overlayManager;
+    private final MeshCache cache = new MeshCache();
+    private final OccupancyUpdater occupancy = new OccupancyUpdater();
+    private final McVertexSink sink = new McVertexSink();
+    private final RenderType slabRenderType = RenderTypes.entityTranslucent(BLOCK_ATLAS);
+    private final SubmitNodeCollector.CustomGeometryRenderer slabPass = this::drawSlabs;
+    private final SubmitNodeCollector.CustomGeometryRenderer borderPass = this::drawBorders;
+    private final BlockPos.MutableBlockPos probePos = new BlockPos.MutableBlockPos();
+    private final OccupancyProbe probe = this::isOccupied;
+    private final MeshCache.UvLookup uvLookup = this::lookupUv;
+    private final ViewFrustum frustum = new ViewFrustum();
+
+    private long lastRevision = -1;
+    private RenderMode lastMode = null;
+    /** Sprite instance of the default block at the last reconcile; changes after a resource reload. */
+    private Object canarySprite = null;
+
+    // Per-frame state captured in render(), read by the deferred passes.
+    private double camX, camY, camZ;
+    private double maxDist;
+    private int alpha;
+    private long lastSlabVertices;
 
     public OverlayRenderer(OverlayManager overlayManager) {
         this.overlayManager = overlayManager;
     }
 
-    public void render(LevelRenderContext context) {
-        var overlays = overlayManager.getOverlays();
-        if (overlays.isEmpty()) return;
-        if (overlayManager.isOverBlockLimit()) return;
+    // -- Event hooks --------------------------------------------------
 
+    public void render(LevelRenderContext context) {
         Minecraft client = Minecraft.getInstance();
         if (client.player == null || client.level == null) return;
         if (context.levelState() == null) return;
 
+        if (overlayManager.getOverlays().isEmpty()) {
+            if (!cache.isEmpty()) cache.clear();
+            lastRevision = overlayManager.revision();
+            return;
+        }
+        if (overlayManager.isOverBlockLimit()) return;
+
+        RenderMode mode = OverlayConfig.getInstance().getRenderMode();
+        Object canary = canarySprite(client);
+        boolean uvChanged = canary != canarySprite;
+        long revision = overlayManager.revision();
+        if (revision != lastRevision || mode != lastMode || uvChanged) {
+            cache.reconcile(overlayManager.getOverlays(), mode, uvLookup, uvChanged);
+            lastRevision = revision;
+            lastMode = mode;
+            canarySprite = canary;
+        }
+        if (cache.isEmpty()) return;
+
         Vec3 cameraPos = context.levelState().cameraRenderState.pos;
+        camX = cameraPos.x;
+        camY = cameraPos.y;
+        camZ = cameraPos.z;
+        maxDist = client.options.renderDistance().get() * 16.0;
+        alpha = Math.max(1, Math.round(255 * OverlayConfig.getInstance().getOpacityMultiplier()));
+        var camera = client.gameRenderer.mainCamera();
+        int w = client.getWindow().getWidth(), h = client.getWindow().getHeight();
+        frustum.set(camX, camY, camZ, camera.yRot(), camera.xRot(),
+                client.options.fov().get(), h > 0 ? (double) w / h : 1.78);
 
-        // Textured slab faces
-        context.submitNodeCollector().submitCustomGeometry(
-                context.poseStack(),
-                RenderTypes.entityTranslucent(Identifier.fromNamespaceAndPath("minecraft", "textures/atlas/blocks.png")),
-                (matrixEntry, vertexConsumer) -> {
-                    drawSlabOverlays(client, vertexConsumer, matrixEntry, cameraPos);
-                }
-        );
+        // Keep every mesh's render Y current (a change clears + dirties its occupancy bits).
+        List<MeshCache.Entry> entries = cache.entries();
+        for (int i = 0, n = entries.size(); i < n; i++) {
+            MeshCache.Entry e = entries.get(i);
+            e.mesh.setRenderY(overlayManager.getRenderY(e.overlay));
+        }
 
-        // Thin border lines on top via debug layer (for occupied positions)
-        context.submitNodeCollector().submitCustomGeometry(
-                context.poseStack(),
-                RenderTypes.debugQuads(),
-                (matrixEntry, vertexConsumer) -> {
-                    drawOccupiedBorders(client, vertexConsumer, matrixEntry, cameraPos);
-                }
-        );
+        context.submitNodeCollector().submitCustomGeometry(context.poseStack(), slabRenderType, slabPass);
+        context.submitNodeCollector().submitCustomGeometry(context.poseStack(), RenderTypes.debugQuads(), borderPass);
     }
 
-    private void drawSlabOverlays(Minecraft client, VertexConsumer buffer,
-                                  PoseStack.Pose matrixEntry, Vec3 cameraPos) {
+    /** Called every client tick: budgeted occupancy rescans. */
+    public void tick(Minecraft client) {
+        if (client.level == null || cache.isEmpty()) return;
+        occupancy.tick(cache.entries(), probe);
+    }
 
-        float opacityMul = OverlayConfig.getInstance().getOpacityMultiplier();
-        double maxDistSq = getMaxRenderDistanceSq(client);
+    /** Vertices emitted in the last slab pass (diagnostics/gametests). */
+    public long lastSlabVertices() {
+        return lastSlabVertices;
+    }
 
-        for (OverlayData overlay : overlayManager.getOverlays()) {
-            int r = overlay.red();
-            int g = overlay.green();
-            int b = overlay.blue();
-            int a = Math.max(1, Math.round(255 * opacityMul));
+    public void onChunkLoad(int chunkX, int chunkZ) {
+        cache.markChunkDirty(chunkX, chunkZ);
+    }
 
-            int overlayY = overlay.y();
+    // -- Passes -------------------------------------------------------
 
-            // Fetch block sprite for texturing (validate tag, fall back to white_wool)
-            Identifier blockId = Identifier.tryParse("minecraft:" + overlay.tag());
-            if (blockId == null) blockId = Identifier.fromNamespaceAndPath("minecraft", "white_wool");
-            Block block = BuiltInRegistries.BLOCK.getValue(blockId);
-            if (block == Blocks.AIR) {
-                block = Blocks.WOOL.white();
+    private void drawSlabs(PoseStack.Pose pose, VertexConsumer buffer) {
+        sink.begin(buffer, pose);
+        List<MeshCache.Entry> entries = cache.entries();
+        for (int i = 0, n = entries.size(); i < n; i++) {
+            MeshCache.Entry e = entries.get(i);
+            if (overlayManager.isHidden(e.overlay.id())) continue;
+            BakedOverlayMesh mesh = e.mesh;
+            if (mesh.isTinted()) {
+                sink.setColor(e.overlay.red(), e.overlay.green(), e.overlay.blue(), alpha);
+            } else {
+                sink.setColor(255, 255, 255, alpha);
             }
-            TextureAtlasSprite sprite = client.getModelManager().getBlockStateModelSet().getParticleMaterial(block.defaultBlockState()).sprite();
+            mesh.replaySlabs(sink, frustum, camX, camY, camZ, mesh.renderY(), maxDist);
+        }
+        lastSlabVertices = sink.takeCount();
+    }
 
-            float u0 = sprite.getU0();
-            float u1 = sprite.getU1();
-            float v0 = sprite.getV0();
-            float v1 = sprite.getV1();
-
-            Set<Long> positionSet = new HashSet<>(overlay.blocks().length * 2);
-            for (OverlayData.BlockPos pos : overlay.blocks()) {
-                positionSet.add(packPos(pos.x(), pos.z()));
-            }
-
-            for (OverlayData.BlockPos pos : overlay.blocks()) {
-                double dx = pos.x() + 0.5 - cameraPos.x;
-                double dz = pos.z() + 0.5 - cameraPos.z;
-                if (dx * dx + dz * dz > maxDistSq) continue;
-
-                if (isOccupied(client, pos.x(), overlayY, pos.z())) continue;
-
-                float x = (float) (pos.x() - cameraPos.x);
-                float z = (float) (pos.z() - cameraPos.z);
-                float y0 = (float) (overlayY - cameraPos.y) + Y_OFFSET;
-                float y1 = y0 + SLAB_HEIGHT;
-
-                boolean hasNorth = positionSet.contains(packPos(pos.x(), pos.z() - 1));
-                boolean hasSouth = positionSet.contains(packPos(pos.x(), pos.z() + 1));
-                boolean hasWest  = positionSet.contains(packPos(pos.x() - 1, pos.z()));
-                boolean hasEast  = positionSet.contains(packPos(pos.x() + 1, pos.z()));
-
-                drawSlab(buffer, matrixEntry, x, y0, y1, z, r, g, b, a,
-                        u0, u1, v0, v1, hasNorth, hasSouth, hasWest, hasEast);
-            }
+    private void drawBorders(PoseStack.Pose pose, VertexConsumer buffer) {
+        sink.begin(buffer, pose);
+        List<MeshCache.Entry> entries = cache.entries();
+        for (int i = 0, n = entries.size(); i < n; i++) {
+            MeshCache.Entry e = entries.get(i);
+            if (overlayManager.isHidden(e.overlay.id())) continue;
+            sink.setColor(e.overlay.red(), e.overlay.green(), e.overlay.blue(), alpha);
+            e.mesh.replayBorders(sink, frustum, camX, camY, camZ, e.mesh.renderY(), maxDist);
         }
     }
 
-    private void drawOccupiedBorders(Minecraft client, VertexConsumer buffer,
-                                     PoseStack.Pose matrixEntry, Vec3 cameraPos) {
+    // -- World / sprite access ----------------------------------------
 
-        float opacityMul = OverlayConfig.getInstance().getOpacityMultiplier();
-        double maxDistSq = getMaxRenderDistanceSq(client);
-
-        for (OverlayData overlay : overlayManager.getOverlays()) {
-            int r = overlay.red();
-            int g = overlay.green();
-            int b = overlay.blue();
-            int a = Math.max(1, Math.round(255 * opacityMul));
-
-            int overlayY = overlay.y();
-
-            Set<Long> positionSet = new HashSet<>(overlay.blocks().length * 2);
-            for (OverlayData.BlockPos pos : overlay.blocks()) {
-                positionSet.add(packPos(pos.x(), pos.z()));
-            }
-
-            for (OverlayData.BlockPos pos : overlay.blocks()) {
-                double dx = pos.x() + 0.5 - cameraPos.x;
-                double dz = pos.z() + 0.5 - cameraPos.z;
-                if (dx * dx + dz * dz > maxDistSq) continue;
-
-                if (!isOccupied(client, pos.x(), overlayY, pos.z())) continue;
-
-                float x = (float) (pos.x() - cameraPos.x);
-                float z = (float) (pos.z() - cameraPos.z);
-                float yt = (float) (overlayY + 1 - cameraPos.y) + Y_OFFSET;
-
-                boolean hasNorth = positionSet.contains(packPos(pos.x(), pos.z() - 1));
-                boolean hasSouth = positionSet.contains(packPos(pos.x(), pos.z() + 1));
-                boolean hasWest  = positionSet.contains(packPos(pos.x() - 1, pos.z()));
-                boolean hasEast  = positionSet.contains(packPos(pos.x() + 1, pos.z()));
-
-                drawTopBorder(buffer, matrixEntry, x, yt, z, r, g, b, a,
-                        hasNorth, hasSouth, hasWest, hasEast);
-            }
-        }
+    private boolean isOccupied(int x, int y, int z) {
+        ClientLevel level = Minecraft.getInstance().level;
+        if (level == null) return false;
+        if (!level.hasChunk(x >> 4, z >> 4)) return false;
+        return !level.getBlockState(probePos.set(x, y, z)).isAir();
     }
 
-    private void drawSlab(VertexConsumer buffer, PoseStack.Pose m,
-                          float x, float y0, float y1, float z,
-                          int r, int g, int b, int a,
-                          float u0, float u1, float v0, float v1,
-                          boolean hasNorth, boolean hasSouth, boolean hasWest, boolean hasEast) {
-
-        int light = FULL_BRIGHT;
-        int overlay = OverlayTexture.NO_OVERLAY;
-
-        float vSide0 = v0;
-        float vSide1 = v0 + (v1 - v0) * SLAB_HEIGHT;
-
-        // Top face (always rendered)
-        buffer.addVertex(m, x, y1, z).setColor(r, g, b, a).setUv(u0, v0).setOverlay(overlay).setLight(light).setNormal(m, 0, 1, 0);
-        buffer.addVertex(m, x, y1, z + 1).setColor(r, g, b, a).setUv(u0, v1).setOverlay(overlay).setLight(light).setNormal(m, 0, 1, 0);
-        buffer.addVertex(m, x + 1, y1, z + 1).setColor(r, g, b, a).setUv(u1, v1).setOverlay(overlay).setLight(light).setNormal(m, 0, 1, 0);
-        buffer.addVertex(m, x + 1, y1, z).setColor(r, g, b, a).setUv(u1, v0).setOverlay(overlay).setLight(light).setNormal(m, 0, 1, 0);
-
-        if (!hasNorth) {
-            buffer.addVertex(m, x, y1, z).setColor(r, g, b, a).setUv(u1, vSide0).setOverlay(overlay).setLight(light).setNormal(m, 0, 0, -1);
-            buffer.addVertex(m, x + 1, y1, z).setColor(r, g, b, a).setUv(u0, vSide0).setOverlay(overlay).setLight(light).setNormal(m, 0, 0, -1);
-            buffer.addVertex(m, x + 1, y0, z).setColor(r, g, b, a).setUv(u0, vSide1).setOverlay(overlay).setLight(light).setNormal(m, 0, 0, -1);
-            buffer.addVertex(m, x, y0, z).setColor(r, g, b, a).setUv(u1, vSide1).setOverlay(overlay).setLight(light).setNormal(m, 0, 0, -1);
+    private static Block resolveBlock(String tag) {
+        Block block = null;
+        if (tag != null) {
+            Identifier id = Identifier.tryParse(tag.contains(":") ? tag : "minecraft:" + tag);
+            if (id != null) block = BuiltInRegistries.BLOCK.getValue(id);
         }
-        if (!hasSouth) {
-            buffer.addVertex(m, x + 1, y1, z + 1).setColor(r, g, b, a).setUv(u1, vSide0).setOverlay(overlay).setLight(light).setNormal(m, 0, 0, 1);
-            buffer.addVertex(m, x, y1, z + 1).setColor(r, g, b, a).setUv(u0, vSide0).setOverlay(overlay).setLight(light).setNormal(m, 0, 0, 1);
-            buffer.addVertex(m, x, y0, z + 1).setColor(r, g, b, a).setUv(u0, vSide1).setOverlay(overlay).setLight(light).setNormal(m, 0, 0, 1);
-            buffer.addVertex(m, x + 1, y0, z + 1).setColor(r, g, b, a).setUv(u1, vSide1).setOverlay(overlay).setLight(light).setNormal(m, 0, 0, 1);
-        }
-        if (!hasWest) {
-            buffer.addVertex(m, x, y1, z + 1).setColor(r, g, b, a).setUv(u1, vSide0).setOverlay(overlay).setLight(light).setNormal(m, -1, 0, 0);
-            buffer.addVertex(m, x, y1, z).setColor(r, g, b, a).setUv(u0, vSide0).setOverlay(overlay).setLight(light).setNormal(m, -1, 0, 0);
-            buffer.addVertex(m, x, y0, z).setColor(r, g, b, a).setUv(u0, vSide1).setOverlay(overlay).setLight(light).setNormal(m, -1, 0, 0);
-            buffer.addVertex(m, x, y0, z + 1).setColor(r, g, b, a).setUv(u1, vSide1).setOverlay(overlay).setLight(light).setNormal(m, -1, 0, 0);
-        }
-        if (!hasEast) {
-            buffer.addVertex(m, x + 1, y1, z).setColor(r, g, b, a).setUv(u1, vSide0).setOverlay(overlay).setLight(light).setNormal(m, 1, 0, 0);
-            buffer.addVertex(m, x + 1, y1, z + 1).setColor(r, g, b, a).setUv(u0, vSide0).setOverlay(overlay).setLight(light).setNormal(m, 1, 0, 0);
-            buffer.addVertex(m, x + 1, y0, z + 1).setColor(r, g, b, a).setUv(u0, vSide1).setOverlay(overlay).setLight(light).setNormal(m, 1, 0, 0);
-            buffer.addVertex(m, x + 1, y0, z).setColor(r, g, b, a).setUv(u1, vSide1).setOverlay(overlay).setLight(light).setNormal(m, 1, 0, 0);
-        }
+        if (block == null || block == Blocks.AIR) block = Blocks.WOOL.white();
+        return block;
     }
 
-    private void drawTopBorder(VertexConsumer buffer, PoseStack.Pose m,
-                               float x, float yt, float z,
-                               int r, int g, int b, int a,
-                               boolean hasNorth, boolean hasSouth, boolean hasWest, boolean hasEast) {
-        float w = 0.06f;
-
-        if (!hasNorth) {
-            buffer.addVertex(m, x, yt, z).setColor(r, g, b, a);
-            buffer.addVertex(m, x, yt, z + w).setColor(r, g, b, a);
-            buffer.addVertex(m, x + 1, yt, z + w).setColor(r, g, b, a);
-            buffer.addVertex(m, x + 1, yt, z).setColor(r, g, b, a);
-        }
-        if (!hasSouth) {
-            buffer.addVertex(m, x, yt, z + 1 - w).setColor(r, g, b, a);
-            buffer.addVertex(m, x, yt, z + 1).setColor(r, g, b, a);
-            buffer.addVertex(m, x + 1, yt, z + 1).setColor(r, g, b, a);
-            buffer.addVertex(m, x + 1, yt, z + 1 - w).setColor(r, g, b, a);
-        }
-        if (!hasWest) {
-            buffer.addVertex(m, x, yt, z).setColor(r, g, b, a);
-            buffer.addVertex(m, x + w, yt, z).setColor(r, g, b, a);
-            buffer.addVertex(m, x + w, yt, z + 1).setColor(r, g, b, a);
-            buffer.addVertex(m, x, yt, z + 1).setColor(r, g, b, a);
-        }
-        if (!hasEast) {
-            buffer.addVertex(m, x + 1 - w, yt, z).setColor(r, g, b, a);
-            buffer.addVertex(m, x + 1, yt, z).setColor(r, g, b, a);
-            buffer.addVertex(m, x + 1, yt, z + 1).setColor(r, g, b, a);
-            buffer.addVertex(m, x + 1 - w, yt, z + 1).setColor(r, g, b, a);
-        }
+    private static TextureAtlasSprite particleSprite(Minecraft client, Block block) {
+        return client.getModelManager().getBlockStateModelSet()
+                .getParticleMaterial(block.defaultBlockState()).sprite();
     }
 
-    private static double getMaxRenderDistanceSq(Minecraft client) {
-        int viewDistance = client.options.renderDistance().get();
-        double maxDist = viewDistance * 16.0;
-        return maxDist * maxDist;
+    private float[] lookupUv(String tag) {
+        TextureAtlasSprite sprite = particleSprite(Minecraft.getInstance(), resolveBlock(tag));
+        return new float[]{sprite.getU0(), sprite.getU1(), sprite.getV0(), sprite.getV1()};
     }
 
-    private static long packPos(int x, int z) {
-        return ((long) x << 32) | (z & 0xFFFFFFFFL);
-    }
-
-    private boolean isOccupied(Minecraft client, int x, int y, int z) {
-        if (client.level == null) return false;
-        int chunkX = x >> 4;
-        int chunkZ = z >> 4;
-        if (!client.level.hasChunk(chunkX, chunkZ)) return false;
-        var pos = new net.minecraft.core.BlockPos(x, y, z);
-        return !client.level.getBlockState(pos).isAir();
+    private static Object canarySprite(Minecraft client) {
+        return particleSprite(client, Blocks.WOOL.white());
     }
 }

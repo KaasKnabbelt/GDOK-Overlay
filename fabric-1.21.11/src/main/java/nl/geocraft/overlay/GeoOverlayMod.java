@@ -2,6 +2,7 @@ package nl.geocraft.overlay;
 
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.loader.api.FabricLoader;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientChunkEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
@@ -18,6 +19,10 @@ public class GeoOverlayMod implements ClientModInitializer {
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
     private BridgeServer bridgeServer;
+    private static OverlayRenderer rendererInstance;
+
+    private static final int BLOCK_LIMIT_WARN_INTERVAL = 100;
+    private int blockLimitWarnTicks = BLOCK_LIMIT_WARN_INTERVAL;
 
     private static final KeyBinding SETTINGS_KEY = KeyBindingHelper.registerKeyBinding(
             new KeyBinding("GDOK Settings", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_G, KeyBinding.Category.MISC)
@@ -36,6 +41,7 @@ public class GeoOverlayMod implements ClientModInitializer {
         LOGGER.info("[GeoCraft Overlay] Mod wordt geladen...");
 
         // Load config
+        OverlayConfig.init(FabricLoader.getInstance().getConfigDir());
         OverlayConfig.getInstance().load();
 
         OverlayManager overlayManager = OverlayManager.getInstance();
@@ -60,7 +66,11 @@ public class GeoOverlayMod implements ClientModInitializer {
 
         // Register world render event for drawing overlays
         OverlayRenderer renderer = new OverlayRenderer(overlayManager);
+        rendererInstance = renderer;
         WorldRenderEvents.BEFORE_DEBUG_RENDER.register(renderer::render);
+        // Occupancy-bits van net geladen chunks opnieuw scannen (zie OccupancyUpdater).
+        ClientChunkEvents.CHUNK_LOAD.register((world, chunk) ->
+                renderer.onChunkLoad(chunk.getPos().x, chunk.getPos().z));
 
         // BungeeCord plugin channel for sub-server detection
         BungeeCordChannel.register(serverName -> {
@@ -121,6 +131,8 @@ public class GeoOverlayMod implements ClientModInitializer {
 
         // Keybinds + per-tick player tracking
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
+            renderer.tick(client);
+
             while (SETTINGS_KEY.wasPressed()) {
                 client.setScreen(new OverlaySettingsScreen());
             }
@@ -140,7 +152,9 @@ public class GeoOverlayMod implements ClientModInitializer {
                         client.world.getRegistryKey().getValue().toString()
                 );
 
-                if (overlayManager.isOverBlockLimit()) {
+                // Actionbar-waarschuwing blijft ~2 s staan; 1x per 100 ticks volstaat.
+                if (overlayManager.isOverBlockLimit() && ++blockLimitWarnTicks >= BLOCK_LIMIT_WARN_INTERVAL) {
+                    blockLimitWarnTicks = 0;
                     client.player.sendMessage(
                             net.minecraft.text.Text.literal(Messages.blockLimitReached(overlayManager.getTotalBlocks())),
                             true
@@ -161,6 +175,11 @@ public class GeoOverlayMod implements ClientModInitializer {
         }));
 
         LOGGER.info("[GeoCraft Overlay] WebSocket bridge actief op poort 4945");
+    }
+
+    /** The active renderer (diagnostics/gametests). */
+    public static OverlayRenderer getRenderer() {
+        return rendererInstance;
     }
 
     /**

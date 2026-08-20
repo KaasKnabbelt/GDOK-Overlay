@@ -41,6 +41,21 @@ loom {
     }
 }
 
+// In-game verificatie (zie README "Development"): `gradlew :fabric-26.x:runClientGameTest`
+// start een echte client, maakt een vlakke wereld, injecteert overlays en controleert
+// screenshots op pixelniveau. Bron: src/gametest/java, eigen mod-id zodat de test-jar nooit
+// in de release-jar belandt.
+fabricApi {
+    configureTests {
+        createSourceSet = true
+        modId = "geocraft-overlay-gametest"
+        enableGameTests = false
+        enableClientGameTests = true
+        eula = true
+        clearRunDirectory = false
+    }
+}
+
 processResources {
     inputs.property "version", project.version
     filesMatching("fabric.mod.json") {

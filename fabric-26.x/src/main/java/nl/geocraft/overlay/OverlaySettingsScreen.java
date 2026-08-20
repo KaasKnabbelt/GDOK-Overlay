@@ -8,6 +8,7 @@ import net.minecraft.client.gui.components.AbstractSliderButton;
 import net.minecraft.client.gui.components.CycleButton;
 import net.minecraft.client.gui.components.StringWidget;
 import net.minecraft.network.chat.Component;
+import nl.geocraft.overlay.render.RenderMode;
 
 public class OverlaySettingsScreen extends Screen {
 
@@ -54,22 +55,33 @@ public class OverlaySettingsScreen extends Screen {
                         Component.literal("Zelfde niveau"),
                         (btn, value) -> config.setSameLevel(value)));
 
+        // Weergave: volledige blokken (echte texture) of dun getint tapijt.
+        addRenderableWidget(CycleButton.<RenderMode>builder(mode -> Component.literal(renderModeLabel(mode)), config.getRenderMode())
+                .withValues(RenderMode.values())
+                .create(centerX - 100, centerY, 200, 20,
+                        Component.literal("Weergave"),
+                        (btn, value) -> config.setRenderMode(value)));
+
         // Reset-knop: zet alle overlays terug op hun originele Y.
         addRenderableWidget(Button.builder(Component.literal("Reset hoogtes"),
                         button -> resetAllOverlayHeights())
-                .bounds(centerX - 100, centerY, 200, 20)
+                .bounds(centerX - 100, centerY + 25, 200, 20)
                 .build());
 
         // Keybind hint
         Component hintText = Component.literal("Page Up / Down — Overlay hoogte aanpassen").withColor(0x888888);
         StringWidget hintWidget = new StringWidget(hintText, this.font);
-        hintWidget.setPosition(centerX - hintWidget.getWidth() / 2, centerY + 30);
+        hintWidget.setPosition(centerX - hintWidget.getWidth() / 2, centerY + 55);
         addRenderableWidget(hintWidget);
 
         // Done button
         addRenderableWidget(Button.builder(Component.literal("Klaar"), button -> onClose())
-                .bounds(centerX - 50, centerY + 50, 100, 20)
+                .bounds(centerX - 50, centerY + 75, 100, 20)
                 .build());
+    }
+
+    static String renderModeLabel(RenderMode mode) {
+        return mode == RenderMode.CARPET ? "Dun tapijt" : "Volledige blokken";
     }
 
     private void resetAllOverlayHeights() {

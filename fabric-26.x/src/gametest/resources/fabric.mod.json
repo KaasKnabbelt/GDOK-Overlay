@@ -1,0 +1,13 @@
+{
+    "schemaVersion": 1,
+    "id": "geocraft-overlay-gametest",
+    "version": "1.0.0",
+    "name": "GDOK Overlay gametests",
+    "environment": "client",
+    "entrypoints": {
+        "fabric-client-gametest": ["nl.geocraft.overlay.gametest.OverlayRenderGameTest"]
+    },
+    "depends": {
+        "geocraft-overlay": "*"
+    }
+}

@@ -66,6 +66,11 @@ Een volledige Minecraft-herstart kost een minuut; voor render- en GUI-tweaks hoe
 
 Een volledige herstart is alleen nodig bij event-registraties, entrypoints, `fabric.mod.json` en Gradle-wijzigingen.
 
+### Tests
+
+- **Unittests** (`./gradlew :common:test`): de geometrie-kern in `common/` (mesh-builder, face-culling, bucketing, cache, occupancy-scanner, frustum) wordt vergeleken met een letterlijke port van de oude per-frame-renderer, zodat de weergave quad-voor-quad gelijk blijft.
+- **Client-gametests** (`./gradlew :fabric-26.x:runClientGameTest` of `:fabric-1.21.11:runClientGameTest`): start een echte client met de mod, maakt een vlakke wereld, stuurt een overlay via de echte WebSocket-bridge en controleert screenshots op pixelniveau: volledige blokken, dun tapijt, verbergen, een echt blok op de overlaypositie (slab weg, kader erbij), blok weer weg, hoogte-wissel, 100.000 blokken versus de framerate, frustum-culling en een resource-reload. Bron in `fabric-*/src/gametest/`, screenshots in `fabric-*/build/run/clientGameTest/screenshots/`. Duurt ~45 s per versie en heeft een scherm nodig (de client opent een venster).
+
 ### Site-kant
 
 De GDOK Viewer verbindt altijd met `127.0.0.1:4945`, ook vanaf een lokale dev-server. Draai dus in de gdok-repo `npm run dev` (plus `php artisan serve`) en open de viewer; de verbindingsstatus linksonder wordt groen zodra de dev-client draait en een wereld geladen is.

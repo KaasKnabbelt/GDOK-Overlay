@@ -154,7 +154,10 @@ public class BridgeServer extends WebSocketServer {
         String id = msg.get("id").getAsString();
         String category = msg.get("category").getAsString();
         String label = msg.has("label") ? msg.get("label").getAsString() : "";
-        String tag = msg.has("tag") && !msg.get("tag").isJsonNull() ? msg.get("tag").getAsString() : "white_wool";
+        // Geen tag (bijv. de klik-marker) blijft null: de renderer tekent zo'n overlay altijd
+        // als getint tapijt, ook in fullblock-modus, want er is geen bloktexture om te tonen.
+        String tag = msg.has("tag") && !msg.get("tag").isJsonNull() ? msg.get("tag").getAsString() : null;
+        if (tag != null && tag.isBlank()) tag = null;
 
         // Parse Y level (MC Y from AHN height)
         int y = msg.has("y") ? msg.get("y").getAsInt() : 64;

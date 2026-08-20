@@ -2,7 +2,7 @@ package nl.geocraft.overlay;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import net.fabricmc.loader.api.FabricLoader;
+import nl.geocraft.overlay.render.RenderMode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -10,18 +10,34 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+/**
+ * Persistent configuration, saved as {@code config/geocraft-overlay.json}.
+ *
+ * <p>Lives in common/ so both Minecraft modules share one implementation; the module
+ * entrypoints inject the config directory via {@link #init(Path)} before calling
+ * {@link #load()} (common/ has no Fabric classpath to ask for it).</p>
+ */
 public class OverlayConfig {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("geocraft-overlay");
     private static final OverlayConfig INSTANCE = new OverlayConfig();
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+    private static final String FILE_NAME = "geocraft-overlay.json";
+
+    private static volatile Path configDir;
 
     private int opacityPercent = 50;
     private boolean shareLocation = false;
     private boolean sameLevel = true;
+    private volatile RenderMode renderMode = RenderMode.FULLBLOCK;
 
     public static OverlayConfig getInstance() {
         return INSTANCE;
+    }
+
+    /** Must be called once by the module entrypoint before {@link #load()}/{@link #save()}. */
+    public static void init(Path directory) {
+        configDir = directory;
     }
 
     public int getOpacityPercent() {
@@ -53,8 +69,21 @@ public class OverlayConfig {
         OverlayManager.getInstance().setSameLevel(value);
     }
 
+    /** How overlay blocks are drawn: full textured blocks (default) or a thin tinted carpet. */
+    public RenderMode getRenderMode() {
+        return renderMode;
+    }
+
+    public void setRenderMode(RenderMode mode) {
+        this.renderMode = mode == null ? RenderMode.FULLBLOCK : mode;
+    }
+
     private static Path configPath() {
-        return FabricLoader.getInstance().getConfigDir().resolve("geocraft-overlay.json");
+        Path dir = configDir;
+        if (dir == null) {
+            throw new IllegalStateException("OverlayConfig.init(configDir) is nog niet aangeroepen");
+        }
+        return dir.resolve(FILE_NAME);
     }
 
     public void load() {
@@ -67,9 +96,10 @@ public class OverlayConfig {
                 opacityPercent = Math.max(0, Math.min(100, data.opacityPercent));
                 shareLocation = data.shareLocation;
                 sameLevel = data.sameLevel;
+                renderMode = RenderMode.fromConfig(data.renderMode);
                 OverlayManager.getInstance().setSameLevel(sameLevel);
             }
-        } catch (IOException e) {
+        } catch (IOException | RuntimeException e) {
             LOGGER.warn("[GeoCraft Overlay] Kon config niet laden: {}", e.getMessage());
         }
     }
@@ -80,8 +110,11 @@ public class OverlayConfig {
             data.opacityPercent = opacityPercent;
             data.shareLocation = shareLocation;
             data.sameLevel = sameLevel;
-            Files.writeString(configPath(), GSON.toJson(data));
-        } catch (IOException e) {
+            data.renderMode = renderMode.configValue();
+            Path path = configPath();
+            Files.createDirectories(path.getParent());
+            Files.writeString(path, GSON.toJson(data));
+        } catch (IOException | RuntimeException e) {
             LOGGER.warn("[GeoCraft Overlay] Kon config niet opslaan: {}", e.getMessage());
         }
     }
@@ -90,5 +123,6 @@ public class OverlayConfig {
         int opacityPercent = 50;
         boolean shareLocation = false;
         boolean sameLevel = true;
+        String renderMode = "fullblock";
     }
 }
