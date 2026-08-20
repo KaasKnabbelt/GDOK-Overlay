@@ -84,6 +84,23 @@ public class BridgeServer extends WebSocketServer {
         broadcastMessage(msg);
     }
 
+    /**
+     * Stuur de site voor elke overlay de hoogte waarop hij nu getekend wordt
+     * ({@link OverlayManager#getRenderY}). Na PageUp/Down, "Reset hoogtes" en een
+     * zelfde-niveau-wissel; alleen nog voor compatibiliteit met een oudere site, die
+     * de hoogte in zijn paneel toont. De mod is eigenaar van de hoogte.
+     */
+    public void broadcastOverlayYs() {
+        for (OverlayData overlay : overlayManager.getOverlays()) {
+            JsonObject msg = new JsonObject();
+            msg.addProperty("type", "overlay");
+            msg.addProperty("action", "updateY");
+            msg.addProperty("id", overlay.id());
+            msg.addProperty("y", overlayManager.getRenderY(overlay));
+            broadcastMessage(msg);
+        }
+    }
+
     private JsonObject buildGateMessage(boolean allowed) {
         JsonObject msg = new JsonObject();
         msg.addProperty("type", "world");

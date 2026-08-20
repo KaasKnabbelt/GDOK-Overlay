@@ -9,7 +9,6 @@ import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 import net.minecraft.client.KeyMapping;
 import com.mojang.blaze3d.platform.InputConstants;
-import com.google.gson.JsonObject;
 import org.lwjgl.glfw.GLFW;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -181,19 +180,14 @@ public class GeoOverlayMod implements ClientModInitializer {
     }
 
     private void adjustHeight(OverlayManager overlayManager, int delta, net.minecraft.client.Minecraft client) {
+        // Zelfde niveau aan: alleen het gedeelde niveau schuift; uit: elke overlay zijn eigen Y.
         overlayManager.adjustAllY(delta);
 
         if (client.player != null) {
             client.player.sendOverlayMessage(net.minecraft.network.chat.Component.literal(Messages.overlayYDelta(delta)));
         }
 
-        for (OverlayData overlay : overlayManager.getOverlays()) {
-            JsonObject msg = new JsonObject();
-            msg.addProperty("type", "overlay");
-            msg.addProperty("action", "updateY");
-            msg.addProperty("id", overlay.id());
-            msg.addProperty("y", overlay.y());
-            bridgeServer.broadcastMessage(msg);
-        }
+        // Hoogtes terugmelden aan de site (compat met een oudere site die ze toont).
+        bridgeServer.broadcastOverlayYs();
     }
 }

@@ -1,6 +1,5 @@
 package nl.geocraft.overlay;
 
-import com.google.gson.JsonObject;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
@@ -53,11 +52,14 @@ public class OverlaySettingsScreen extends Screen {
                             GeoOverlayMod.refreshPlayerTracking();
                         }));
 
-        // Zelfde-niveau toggle: nieuwe overlays krijgen automatisch de gemiddelde Y.
+        // Zelfde-niveau toggle: alle overlays op één gedeeld niveau (zie OverlayManager.levelY).
         addDrawableChild(CyclingButtonWidget.onOffBuilder(config.isSameLevel())
                 .build(centerX - 100, centerY - 25, 200, 20,
                         Text.literal("Zelfde niveau"),
-                        (btn, value) -> config.setSameLevel(value)));
+                        (btn, value) -> {
+                            config.setSameLevel(value);
+                            broadcastHeights();
+                        }));
 
         // Weergave: volledige blokken (echte texture) of dun getint tapijt.
         addDrawableChild(CyclingButtonWidget.<RenderMode>builder(mode -> Text.literal(renderModeLabel(mode)), config.getRenderMode())
@@ -89,17 +91,13 @@ public class OverlaySettingsScreen extends Screen {
     }
 
     private void resetAllOverlayHeights() {
-        java.util.Map<String, Integer> changes = OverlayManager.getInstance().resetAllY();
+        if (OverlayManager.getInstance().resetAllY()) broadcastHeights();
+    }
+
+    /** Hoogtes terugmelden aan de site (compat met een oudere site die ze in haar paneel toont). */
+    private static void broadcastHeights() {
         BridgeServer bridge = BridgeServer.getInstance();
-        if (bridge == null) return;
-        for (var entry : changes.entrySet()) {
-            JsonObject msg = new JsonObject();
-            msg.addProperty("type", "overlay");
-            msg.addProperty("action", "updateY");
-            msg.addProperty("id", entry.getKey());
-            msg.addProperty("y", entry.getValue());
-            bridge.broadcastMessage(msg);
-        }
+        if (bridge != null) bridge.broadcastOverlayYs();
     }
 
     @Override
