@@ -6,7 +6,7 @@
     "description": "Visualiseert metingen en BGT-omtrekken van GDOK als overlay in Minecraft",
     "authors": ["OfficialNyanCat"],
     "contact": {
-        "homepage": "https://gdok.tectabuilds.nl",
+        "homepage": "https://gdok.nl",
         "sources": "https://github.com/KaasKnabbelt/GDOK-Overlay"
     },
     "license": "MIT",

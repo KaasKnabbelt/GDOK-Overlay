@@ -1,6 +1,6 @@
 // Root project properties shared by all subprojects
 ext {
-    mod_version = '1.0.6'
+    mod_version = '1.1.0'
     maven_group = 'nl.geocraft'
     archives_base_name = 'GDOK-Overlay'
 }
@@ -9,30 +9,114 @@ subprojects {
     group = rootProject.maven_group
 }
 
-// Generate mod-info.json after building all subprojects
+// De Minecraft-modules: elke subproject met een minecraft_version in zijn gradle.properties
+// (common heeft er geen). Gesorteerd op Minecraft-versie (numeriek per onderdeel), zodat de
+// volgorde in mod-info.json stabiel is: 1.21.11 vóór 26.2. De eerste entry is op de
+// downloadpagina de voorgeselecteerde versie.
+def mcModules() {
+    subprojects.findAll { it.hasProperty('minecraft_version') }.sort { a, b ->
+        def pa = a.minecraft_version.tokenize('.').collect { it.toInteger() }
+        def pb = b.minecraft_version.tokenize('.').collect { it.toInteger() }
+        for (int i = 0; i < Math.max(pa.size(), pb.size()); i++) {
+            int c = (i < pa.size() ? pa[i] : 0) <=> (i < pb.size() ? pb[i] : 0)
+            if (c != 0) return c
+        }
+        return 0
+    }
+}
+
+def jarNameFor(Project mod) {
+    "${archives_base_name}-${mod_version}+mc${mod.minecraft_version}.jar"
+}
+
+def modInfoFile = layout.buildDirectory.file('mod-info.json')
+
+// Genereert build/mod-info.json, het bestand dat gdok.nl/downloads en de in-game UpdateChecker
+// lezen. Alles komt uit de modules zelf (minecraft_version + java_version in hun
+// gradle.properties); een nieuwe Minecraft-module is dus meteen een extra download zonder
+// deze task aan te raken. De java-regel houdt het formaat ">= 21 (1.21.11) / >= 25 (26.2)":
+// één "eis (mcversie)"-paar per versie, gescheiden door " / ", want downloads.blade.php
+// parseert precies dat voor de Java-hint per versie in de installatiehandleiding.
 tasks.register('generateModInfo') {
+    description = 'Schrijft build/mod-info.json op basis van de Minecraft-modules.'
+    dependsOn mcModules().collect { ":${it.name}:build" }
+    outputs.file modInfoFile
+    outputs.upToDateWhen { false }   // de releasedatum is "vandaag"
+
     doLast {
-        def releasedDate = new Date().format("yyyy-MM-dd")
+        def mods = mcModules()
         def info = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson([
             version       : mod_version,
-            released      : releasedDate,
-            files         : [
-                [
-                    filename  : "${archives_base_name}-${mod_version}+mc1.21.11.jar",
-                    minecraft : "1.21.11",
-                ],
-                [
-                    filename  : "${archives_base_name}-${mod_version}+mc26.2.jar",
-                    minecraft : "26.2",
-                ],
-            ],
-            loader        : "Fabric",
-            java          : ">= 21 (1.21.11) / >= 25 (26.2)",
-            description   : "Visualiseert je metingen en BGT-omtrekken vanuit de GDOK Viewer als overlay in Minecraft. De mod verbindt via een WebSocket-bridge met de webviewer zodat je real-time feedback krijgt in-game.",
+            released      : new Date().format('yyyy-MM-dd'),
+            files         : mods.collect { [filename: jarNameFor(it), minecraft: it.minecraft_version] },
+            loader        : 'Fabric',
+            java          : mods.collect { ">= ${it.java_version} (${it.minecraft_version})" }.join(' / '),
+            description   : 'Visualiseert je metingen en BGT-omtrekken vanuit de GDOK Viewer als overlay in Minecraft. De mod verbindt via een WebSocket-bridge met de webviewer zodat je real-time feedback krijgt in-game.',
             dependencies  : [
-                [name: "Fabric API", url: "https://modrinth.com/mod/fabric-api"]
+                [name: 'Fabric API', url: 'https://modrinth.com/mod/fabric-api']
             ]
         ]))
-        file("${layout.buildDirectory.get().asFile}/mod-info.json").text = info
+        def out = modInfoFile.get().asFile
+        out.parentFile.mkdirs()
+        out.text = info
+        println "mod-info.json: ${out}"
+    }
+}
+
+// Zet een release in de gdok-repo: de jars van alle modules + mod-info.json naar
+// <siteDir>/public/downloads/. Is de versie die daar nu staat een andere dan mod_version, dan
+// gaat die oude versie automatisch vooraan in mod-legacy.json (alleen version/released/files,
+// zoals de bestaande entries), zodat de downloadpagina hem onder "Versiegeschiedenis" blijft
+// tonen. Oude jars blijven staan: daar wijzen de legacy-links naar. Dezelfde versie opnieuw
+// publiceren overschrijft alleen de jars en mod-info.json en raakt de legacy-lijst niet aan.
+//
+//   ./gradlew publishToSite                 (siteDir = ../gdok)
+//   ./gradlew publishToSite -PsiteDir=/pad/naar/gdok
+tasks.register('publishToSite') {
+    description = 'Kopieert de jars en mod-info.json naar de gdok-repo en werkt mod-legacy.json bij.'
+    dependsOn 'generateModInfo'
+
+    doLast {
+        def siteDir = file(findProperty('siteDir') ?: '../gdok')
+        def downloads = new File(siteDir, 'public/downloads')
+        if (!downloads.isDirectory()) {
+            throw new GradleException("Geen gdok-repo gevonden op ${siteDir.canonicalPath} (map public/downloads ontbreekt). Geef de map mee met -PsiteDir=...")
+        }
+
+        def slurper = new groovy.json.JsonSlurper()
+        def currentFile = new File(downloads, 'mod-info.json')
+        def legacyFile = new File(downloads, 'mod-legacy.json')
+        def current = currentFile.isFile() ? slurper.parse(currentFile, 'UTF-8') : null
+        def legacy = legacyFile.isFile() ? slurper.parse(legacyFile, 'UTF-8') : [versions: []]
+
+        // Eerst controleren dat alle jars er zijn, dan pas iets aanraken.
+        def jars = mcModules().collect { mod ->
+            def jar = mod.layout.buildDirectory.file("libs/${jarNameFor(mod)}").get().asFile
+            if (!jar.isFile()) throw new GradleException("Jar ontbreekt: ${jar} (draai eerst 'gradlew build')")
+            jar
+        }
+
+        if (current?.version && current.version != mod_version) {
+            def already = legacy.versions.any { it.version == current.version }
+            if (already) {
+                println "mod-legacy.json: ${current.version} stond er al in, niet nogmaals toegevoegd"
+            } else {
+                legacy.versions.add(0, [
+                    version : current.version,
+                    released: current.released,
+                    files   : current.files.collect { [filename: it.filename, minecraft: it.minecraft] },
+                ])
+                legacyFile.setText(groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(legacy)) + '\n', 'UTF-8')
+                println "mod-legacy.json: ${current.version} vooraan toegevoegd"
+            }
+        }
+
+        jars.each { jar ->
+            copy { from jar; into downloads }
+            println "gekopieerd: ${jar.name}"
+        }
+        copy { from modInfoFile; into downloads }
+        println "gekopieerd: mod-info.json (${mod_version})"
+        println "Klaar. Controleer de diff in ${siteDir.canonicalPath} en commit + deploy daar."
     }
 }

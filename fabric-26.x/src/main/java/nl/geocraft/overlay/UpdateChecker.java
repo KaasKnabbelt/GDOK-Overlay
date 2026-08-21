@@ -1,27 +1,22 @@
 package nl.geocraft.overlay;
 
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.ClickEvent;
+import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.HoverEvent;
 import net.minecraft.network.chat.MutableComponent;
-import net.minecraft.network.chat.Component;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.time.Duration;
 
+/**
+ * Meldt in de chat als er een nieuwere mod-versie op gdok.nl staat.
+ *
+ * <p>Dunne shim: de check zelf (HTTP, JSON, versievergelijking, de jar voor deze
+ * Minecraft-versie kiezen) zit in {@link UpdateCheckCore} in common/. Hier alleen de thread
+ * en het chatbericht met click-event, want {@code ClickEvent}/{@code Component} zijn per mapping anders.</p>
+ */
 public class UpdateChecker {
-
-    private static final Logger LOGGER = LoggerFactory.getLogger("geocraft-overlay");
-    private static final String VERSION_URL = "https://gdok.tectabuilds.nl/downloads/mod-info.json";
-    private static final String DOWNLOAD_URL = "https://gdok.tectabuilds.nl/downloads/";
 
     private static boolean checked = false;
 
@@ -35,63 +30,16 @@ public class UpdateChecker {
     }
 
     private static void checkForUpdate() {
-        try {
-            String currentVersion = FabricLoader.getInstance()
-                    .getModContainer(GeoOverlayMod.MOD_ID)
-                    .map(c -> c.getMetadata().getVersion().getFriendlyString())
-                    .orElse("0.0.0");
+        String modVersion = FabricLoader.getInstance()
+                .getModContainer(GeoOverlayMod.MOD_ID)
+                .map(c -> c.getMetadata().getVersion().getFriendlyString())
+                .orElse("0.0.0");
 
-            HttpClient client = HttpClient.newBuilder()
-                    .connectTimeout(Duration.ofSeconds(5))
-                    .build();
-
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(VERSION_URL))
-                    .timeout(Duration.ofSeconds(5))
-                    .GET()
-                    .build();
-
-            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-
-            if (response.statusCode() != 200) return;
-
-            JsonObject json = JsonParser.parseString(response.body()).getAsJsonObject();
-            String latestVersion = json.get("version").getAsString();
-            String filename = json.has("filename") ? json.get("filename").getAsString() : "";
-
-            if (isNewer(latestVersion, currentVersion)) {
-                String downloadLink = DOWNLOAD_URL + filename;
-                notifyPlayer(currentVersion, latestVersion, downloadLink);
-            }
-
-        } catch (Exception e) {
-            LOGGER.debug("[GeoCraft Overlay] Update check mislukt: {}", e.getMessage());
-        }
+        UpdateCheckCore.Result result = UpdateCheckCore.check(modVersion);
+        if (result != null) notifyPlayer(result, UpdateCheckCore.minecraftTarget(modVersion));
     }
 
-    private static boolean isNewer(String latest, String current) {
-        // Strip build metadata (e.g. "1.0.4+mc1.21.11" -> "1.0.4")
-        latest = latest.split("\\+")[0];
-        current = current.split("\\+")[0];
-
-        String[] l = latest.split("\\.");
-        String[] c = current.split("\\.");
-        int len = Math.max(l.length, c.length);
-        for (int i = 0; i < len; i++) {
-            int lv = i < l.length ? parseIntSafe(l[i]) : 0;
-            int cv = i < c.length ? parseIntSafe(c[i]) : 0;
-            if (lv > cv) return true;
-            if (lv < cv) return false;
-        }
-        return false;
-    }
-
-    private static int parseIntSafe(String s) {
-        try { return Integer.parseInt(s); }
-        catch (NumberFormatException e) { return 0; }
-    }
-
-    private static void notifyPlayer(String current, String latest, String downloadUrl) {
+    private static void notifyPlayer(UpdateCheckCore.Result result, String minecraftVersion) {
         Minecraft mc = Minecraft.getInstance();
 
         mc.execute(() -> {
@@ -99,14 +47,23 @@ public class UpdateChecker {
 
             MutableComponent message = Component.literal(Messages.PREFIX)
                     .append(Component.literal(Messages.updateAvailableIntro()))
-                    .append(Component.literal(Messages.updateAvailableLatest(latest)))
-                    .append(Component.literal(Messages.updateAvailableCurrent(current)))
-                    .append(Component.literal(Messages.updateDownloadLabel())
-                            .withStyle(style -> style
-                                    .withClickEvent(new ClickEvent.OpenUrl(URI.create(downloadUrl)))
-                                    .withHoverEvent(new HoverEvent.ShowText(Component.literal(downloadUrl)))));
+                    .append(Component.literal(Messages.updateAvailableLatest(result.latestVersion())))
+                    .append(Component.literal(Messages.updateAvailableCurrent(result.currentVersion())));
+
+            if (result.hasFileForThisMinecraft()) {
+                message.append(link(Messages.updateDownloadLabel(), result.downloadUrl()));
+            } else {
+                message.append(Component.literal(Messages.updateNotForThisMinecraft(minecraftVersion)))
+                        .append(link(Messages.updateDownloadsPageLabel(), UpdateCheckCore.DOWNLOADS_PAGE_URL));
+            }
 
             mc.player.sendSystemMessage(message);
         });
+    }
+
+    private static MutableComponent link(String label, String url) {
+        return Component.literal(label).withStyle(style -> style
+                .withClickEvent(new ClickEvent.OpenUrl(URI.create(url)))
+                .withHoverEvent(new HoverEvent.ShowText(Component.literal(url))));
     }
 }

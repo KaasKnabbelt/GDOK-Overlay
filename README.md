@@ -1,6 +1,6 @@
 # GDOK Overlay
 
-Een client-side Fabric mod die metingen en BGT-omtrekken vanuit de [GDOK Viewer](https://gdok.tectabuilds.nl/viewer) visualiseert als in-game overlays in Minecraft.
+Een client-side Fabric mod die metingen en BGT-omtrekken vanuit de [GDOK Viewer](https://gdok.nl/viewer) visualiseert als in-game overlays in Minecraft.
 
 De mod verbindt met de webviewer via een lokale WebSocket bridge, waardoor wijzigingen die je op de kaart maakt direct real-time in de game verschijnen.
 
@@ -17,7 +17,7 @@ De mod verbindt met de webviewer via een lokale WebSocket bridge, waardoor wijzi
 
 1. Installeer [Fabric Loader](https://fabricmc.net/use/) voor Minecraft 1.21.11 of 26.2.
 2. Download [Fabric API](https://modrinth.com/mod/fabric-api) en plaats deze in je `mods/` map.
-3. Download de juiste GDOK Overlay jar voor jouw Minecraft-versie vanaf [gdok.tectabuilds.nl](https://gdok.tectabuilds.nl/viewer) en zet hem in je `mods/` map.
+3. Download de juiste GDOK Overlay jar voor jouw Minecraft-versie vanaf [gdok.nl](https://gdok.nl/viewer) en zet hem in je `mods/` map.
 
 ## Gebruik
 
@@ -51,7 +51,20 @@ De resulterende jars zijn vervolgens voor beide versies terug te vinden in:
 - `fabric-1.21.11/build/libs/`
 - `fabric-26.x/build/libs/`
 
-En de overkoepelende mod info vind je in `build/mod-info.json`.
+En de overkoepelende mod info vind je in `build/mod-info.json`. Die wordt afgeleid uit de modules zelf: elke module met een `minecraft_version` en `java_version` in zijn `gradle.properties` levert een jar en een Java-eis. Een extra Minecraft-versie is dus een nieuwe module, zonder de root-`build.gradle` aan te raken.
+
+## Release
+
+1. Zet `mod_version` in de root-`build.gradle` op de nieuwe versie en commit de mod-repo.
+2. Bouw en publiceer naar de site-repo (standaard `../gdok`, anders `-PsiteDir=/pad/naar/gdok`):
+
+   ```bash
+   ./gradlew build generateModInfo publishToSite
+   ```
+
+   `publishToSite` zet de jars en `mod-info.json` in `public/downloads/` van de gdok-repo. Stond daar een andere versie, dan gaat die automatisch vooraan in `mod-legacy.json` (de "Versiegeschiedenis" op gdok.nl/downloads); oude jars blijven staan omdat de legacy-links ernaar wijzen. Dezelfde versie nogmaals publiceren vervangt alleen de jars en `mod-info.json`.
+3. Bekijk de diff in de gdok-repo (twee nieuwe jars, `mod-info.json`, `mod-legacy.json`), commit daar en deploy beide: de site (zie de gdok-repo) en dit project (tag + push).
+4. De spelers horen het vanzelf: de mod controleert bij het joinen `gdok.nl/downloads/mod-info.json` en meldt een nieuwere versie in de chat met een directe downloadlink voor hun Minecraft-versie (of een link naar de downloadpagina als er voor die versie geen jar meer is). **Let op:** de jars t/m 1.0.6 doen die check nog tegen het oude domein en volgen de redirect niet, dus die spelers krijgen géén melding; een 1.1.0-release hoort daarom ook in de Discord aangekondigd te worden.
 
 ## Development
 

@@ -39,7 +39,9 @@ public final class Messages {
         return PREFIX + "§fDruk op §a§lG§r§f om je overlays te beheren (zichtbaarheid, hoogte, vastzetten).";
     }
 
-    /** Tekst-deel van het update-bericht (zonder click-event; die wordt per loader gebouwd). */
+    // Update-bericht (zie UpdateCheckCore). Tekst-delen zonder click-event; het klikbare label
+    // wordt per loader gebouwd, want ClickEvent is per mapping anders.
+
     public static String updateAvailableIntro() {
         return "§eEr is een nieuwe versie beschikbaar: ";
     }
@@ -52,7 +54,19 @@ public final class Messages {
         return "§e (jij hebt v" + current + "). ";
     }
 
+    /** Label van de directe jar-download voor deze Minecraft-versie. */
     public static String updateDownloadLabel() {
         return "§b§n[Download]";
+    }
+
+    /** Als de nieuwe versie (nog) geen jar voor deze Minecraft-versie heeft. */
+    public static String updateNotForThisMinecraft(String minecraftVersion) {
+        String mc = minecraftVersion == null ? "jouw Minecraft-versie" : "Minecraft " + minecraftVersion;
+        return "§7Nog niet beschikbaar voor " + mc + "; kijk op de downloadpagina welke versies er zijn. ";
+    }
+
+    /** Label van de link naar de downloadpagina (fallback). */
+    public static String updateDownloadsPageLabel() {
+        return "§b§n[Downloadpagina]";
     }
 }
