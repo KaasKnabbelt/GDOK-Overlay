@@ -17,8 +17,20 @@ import java.net.InetSocketAddress;
 /**
  * WebSocket server that receives overlay commands from the GDOK web application.
  * Runs on localhost:4945 and accepts JSON messages.
+ *
+ * <h2>Protocol</h2>
+ * <p>Site → mod: {@code overlay/add|remove|clear|updateY|setHidden}, {@code command/run},
+ * {@code pong}. Mod → site: {@code hello} (on connect, with {@link #PROTOCOL}),
+ * {@code world/allowed|blocked}, {@code overlay/requestSync}, {@code overlay/updateY}
+ * (legacy height echo), {@code overlay/state} (hidden/pinned/y of one overlay),
+ * {@code overlay/removed} (the player removed it in-game; the site drops it too), {@code ping},
+ * {@code player/update|remove}. Protocol 2 (mod 1.1.0) added hello, setHidden, state and
+ * removed; a site that never sees {@code hello} falls back to the 1.0.x behaviour.</p>
  */
 public class BridgeServer extends WebSocketServer {
+
+    /** Bumped when the site needs to know about new message types; announced in {@code hello}. */
+    public static final int PROTOCOL = 2;
 
     private static final Logger LOGGER = LoggerFactory.getLogger("geocraft-overlay");
     private final OverlayManager overlayManager;
@@ -56,6 +68,12 @@ public class BridgeServer extends WebSocketServer {
     @Override
     public void onOpen(WebSocket conn, ClientHandshake handshake) {
         LOGGER.info("[GeoCraft Overlay] GDOK verbonden vanuit browser");
+        // Hello first: the site waits for it before re-sending its overlays, so it knows
+        // whether setHidden/state/removed are understood.
+        JsonObject hello = new JsonObject();
+        hello.addProperty("type", "hello");
+        hello.addProperty("protocol", PROTOCOL);
+        conn.send(hello.toString());
         // Send current gate status so the browser knows immediately
         conn.send(buildGateMessage(ServerGate.getInstance().isAllowed()).toString());
     }
@@ -120,6 +138,7 @@ public class BridgeServer extends WebSocketServer {
                     case "remove" -> handleRemove(msg);
                     case "clear" -> handleClear(msg);
                     case "updateY" -> handleUpdateY(msg);
+                    case "setHidden" -> handleSetHidden(msg);
                 }
             } else if ("command".equals(type)) {
                 if ("run".equals(action)) {
@@ -210,9 +229,35 @@ public class BridgeServer extends WebSocketServer {
         OverlayData stored = overlayManager.getOverlay(id);
         int renderY = overlayManager.getRenderY(stored == null ? overlay : stored);
         if (renderY != y) broadcastOverlayY(id, renderY);
+        // Na een herzending (site-F5, penseelstreek) weet de site zo weer of de laag hier
+        // verborgen of vastgezet is.
+        if (overlayManager.isHidden(id) || overlayManager.isPinned(id)) broadcastState(id);
     }
 
-    private void broadcastOverlayY(String id, int y) {
+    /** Mirror of one overlay's in-game state (hidden, pinned, drawn Y) for the site panel. */
+    public void broadcastState(String id) {
+        OverlayData overlay = overlayManager.getOverlay(id);
+        if (overlay == null) return;
+        JsonObject msg = new JsonObject();
+        msg.addProperty("type", "overlay");
+        msg.addProperty("action", "state");
+        msg.addProperty("id", id);
+        msg.addProperty("hidden", overlayManager.isHidden(id));
+        msg.addProperty("pinned", overlayManager.isPinned(id));
+        msg.addProperty("y", overlayManager.getRenderY(overlay));
+        broadcastMessage(msg);
+    }
+
+    /** The player removed an overlay in-game: the site drops the drawing too (one system). */
+    public void broadcastRemoved(String id) {
+        JsonObject msg = new JsonObject();
+        msg.addProperty("type", "overlay");
+        msg.addProperty("action", "removed");
+        msg.addProperty("id", id);
+        broadcastMessage(msg);
+    }
+
+    public void broadcastOverlayY(String id, int y) {
         JsonObject msg = new JsonObject();
         msg.addProperty("type", "overlay");
         msg.addProperty("action", "updateY");
@@ -229,6 +274,13 @@ public class BridgeServer extends WebSocketServer {
     private void handleClear(JsonObject msg) {
         String category = msg.get("category").getAsString();
         overlayManager.clearCategory(category);
+    }
+
+    private void handleSetHidden(JsonObject msg) {
+        String id = msg.get("id").getAsString();
+        boolean hidden = msg.get("hidden").getAsBoolean();
+        overlayManager.setHidden(id, hidden);
+        broadcastState(id); // bevestigt aan alle tabs, ook de afzender
     }
 
     private void handleUpdateY(JsonObject msg) {

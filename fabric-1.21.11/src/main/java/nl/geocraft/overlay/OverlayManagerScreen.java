@@ -81,8 +81,7 @@ public class OverlayManagerScreen extends Screen {
                     rebuildEntries();
                 })
                 .width(190)
-                .tooltip(Tooltip.of(Text.literal("Haalt alle overlays uit Minecraft, behalve de vastgezette. "
-                        + "De site stuurt haar tekening bij de volgende wijziging of herverbinding gewoon weer.")))
+                .tooltip(Tooltip.of(Text.literal("Wist alle lagen, ook in de GDOK viewer; alleen vastgezette lagen blijven staan.")))
                 .build());
         footer.add(ButtonWidget.builder(Text.literal("Klaar"), b -> close()).width(100).build());
 
@@ -238,7 +237,7 @@ public class OverlayManagerScreen extends Screen {
             this.row = row;
             this.icon = row.isMarker() ? ItemStack.EMPTY : new ItemStack(resolveBlock(row.tag()).asItem());
             this.stepper = new Stepper(() -> state.shiftRow(row.id(), -1), () -> state.shiftRow(row.id(), 1),
-                    "Hoogte van alleen deze laag");
+                    "Hoogte van alleen deze laag. Volgt de laag nog het gedeelde niveau, dan wordt hij hiermee vastgezet.");
             this.visibility = ButtonWidget.builder(Text.literal(row.hidden() ? "Toon" : "Verberg"),
                             b -> state.setHidden(row.id(), !row.hidden()))
                     .size(46, 20)
@@ -250,17 +249,16 @@ public class OverlayManagerScreen extends Screen {
                             b -> state.setPinned(row.id(), !row.pinned()))
                     .size(34, 20)
                     .tooltip(Tooltip.of(Text.literal(row.pinned()
-                            ? "Vastgezet: blijft staan bij \"Wissen\" op de site en bij \"Alles wissen\" hier. "
-                              + "Niet bij opnieuw joinen. Klik om los te maken."
-                            : "Zet vast: overleeft \"Wissen\" op de site en \"Alles wissen\" hier (tot je de server verlaat). "
-                              + "Let op: opnieuw verven op de site vervangt wel de inhoud.")))
+                            ? "Vastgezet: houdt zijn eigen hoogte (Page Up/Down en het gedeelde niveau laten hem staan) "
+                              + "en blijft bij \"Alles wissen\". Niet bij opnieuw joinen. Klik om los te maken."
+                            : "Zet vast: de laag houdt zijn eigen hoogte, beweegt niet mee met Page Up/Down of het gedeelde "
+                              + "niveau en blijft staan bij \"Alles wissen\" (tot je de server verlaat).")))
                     .build();
             this.remove = ButtonWidget.builder(Text.literal("X"), b -> state.remove(row.id()))
                     .size(20, 20)
-                    .tooltip(Tooltip.of(Text.literal("Verwijder uit Minecraft (ook als hij vastgezet is). "
-                            + "De site stuurt hem bij de volgende wijziging weer mee.")))
+                    .tooltip(Tooltip.of(Text.literal("Verwijder deze laag, ook uit de GDOK viewer (de blokken gaan daar van de kaart).")))
                     .build();
-            if (!state.sameLevel()) children.addAll(stepper.widgets());
+            children.addAll(stepper.widgets());
             children.add(visibility);
             children.add(pin);
             children.add(remove);
@@ -302,12 +300,10 @@ public class OverlayManagerScreen extends Screen {
             context.drawTextWithShadow(textRenderer, textRenderer.trimToWidth(count, textRoom), textX, getContentMiddleY() + 1, GREY);
 
             for (ClickableWidget w : List.of(visibility, pin, remove)) w.render(context, mouseX, mouseY, delta);
-            if (state.sameLevel()) {
-                context.drawCenteredTextWithShadow(textRenderer, "Y " + row.renderY(), stepperX + Stepper.WIDTH / 2, y + 6, GREY);
-            } else {
-                stepper.place(stepperX, y);
-                stepper.render(context, mouseX, mouseY, delta, Integer.toString(row.ownY()));
-            }
+            // De stepper toont de getekende hoogte; stappen op een laag die nog het gedeelde
+            // niveau volgt zet hem vast (zie OverlayManager.adjustOverlayY).
+            stepper.place(stepperX, y);
+            stepper.render(context, mouseX, mouseY, delta, Integer.toString(row.renderY()));
         }
 
         @Override
@@ -325,7 +321,7 @@ public class OverlayManagerScreen extends Screen {
         LevelEntry() {
             toggle = CyclingButtonWidget.onOffBuilder(state.sameLevel())
                     .tooltip(v -> Tooltip.of(Text.literal(
-                            "Aan: alle lagen op één hoogte, samen te verschuiven. Uit: elke laag houdt haar eigen hoogte.")))
+                            "Aan: alle losse lagen op één hoogte, samen te verschuiven. Uit: elke laag houdt haar eigen hoogte. Vastgezette lagen doen nooit mee.")))
                     .build(0, 0, 150, 20, Text.literal("Zelfde niveau"), (b, v) -> state.setSameLevel(v));
             stepper = new Stepper(() -> state.shiftLevel(-1), () -> state.shiftLevel(1), "Niveau van alle lagen (als Page Up / Down)");
             reset = ButtonWidget.builder(Text.literal("Reset hoogtes"), b -> state.resetHeights())

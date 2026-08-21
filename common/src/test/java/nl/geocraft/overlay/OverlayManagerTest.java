@@ -221,13 +221,60 @@ class OverlayManagerTest {
     }
 
     @Test
-    void rowStepperMovesOnlyThatOverlay() {
+    void rowStepperDetachesTheRowFromTheSharedLevel() {
         mgr.addOverlay(overlay("paint_a", 40, 10));
         mgr.addOverlay(overlay("paint_b", 55, 10));
+        // Beide volgen het niveau (40). De stepper op b zet b vast op 40 en schuift dan.
         mgr.adjustOverlayY("paint_b", 3);
-        assertEquals(58, mgr.getOverlay("paint_b").y());
-        assertEquals(40, mgr.getOverlay("paint_a").y());
+        assertTrue(mgr.isPinned("paint_b"));
+        assertEquals(43, mgr.getOverlay("paint_b").y());
+        assertEquals(43, mgr.getRenderY(mgr.getOverlay("paint_b")));
+        assertEquals(40, mgr.getRenderY(mgr.getOverlay("paint_a")));
         assertEquals(40, mgr.getLevelY(), "het gedeelde niveau blijft");
+
+        // Page Up schuift het niveau, de vastgezette laag blijft staan.
+        mgr.adjustAllY(5);
+        assertEquals(45, mgr.getRenderY(mgr.getOverlay("paint_a")));
+        assertEquals(43, mgr.getRenderY(mgr.getOverlay("paint_b")));
+
+        // Losmaken: b volgt het niveau weer.
+        mgr.setPinned("paint_b", false);
+        assertEquals(45, mgr.getRenderY(mgr.getOverlay("paint_b")));
+    }
+
+    @Test
+    void pinningFreezesTheLayerWhereItIsShown() {
+        mgr.addOverlay(overlay("paint_a", 40, 10));
+        mgr.addOverlay(overlay("paint_b", 55, 10));
+        mgr.adjustAllY(2); // niveau 42
+        mgr.setPinned("paint_b", true);
+        assertEquals(42, mgr.getOverlay("paint_b").y(), "eigen Y = wat de speler zag");
+        mgr.adjustAllY(10);
+        assertEquals(42, mgr.getRenderY(mgr.getOverlay("paint_b")));
+        assertEquals(52, mgr.getRenderY(mgr.getOverlay("paint_a")));
+
+        // Zelfde niveau uit: Page Down schuift alleen de losse lagen.
+        mgr.setSameLevel(false);
+        mgr.adjustAllY(-1);
+        assertEquals(42, mgr.getRenderY(mgr.getOverlay("paint_b")));
+        assertEquals(39, mgr.getRenderY(mgr.getOverlay("paint_a")));
+        // En de rij-stepper hoeft dan niets vast te zetten.
+        mgr.adjustOverlayY("paint_a", 1);
+        assertFalse(mgr.isPinned("paint_a"));
+        assertEquals(40, mgr.getOverlay("paint_a").y());
+    }
+
+    @Test
+    void unpinnedIdsListsWhatAClearWouldDrop() {
+        mgr.addOverlay(overlay("paint_a", 40, 10));
+        mgr.addOverlay(overlay("paint_b", 41, 10));
+        mgr.addOverlay(new OverlayData("click", "click", new OverlayData.BlockPos[]{new OverlayData.BlockPos(0, 0)},
+                44, 74, 222, 128, 80, "Marker", null));
+        mgr.setPinned("paint_a", true);
+        assertEquals(java.util.Set.of("paint_b", "click"), new java.util.HashSet<>(mgr.unpinnedIds("all")));
+        assertEquals(java.util.List.of("paint_b"), mgr.unpinnedIds("paint"));
+        mgr.clearCategory("all");
+        assertEquals(1, mgr.getOverlayCount());
     }
 
     @Test

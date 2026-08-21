@@ -28,14 +28,16 @@ De mod verbindt met de webviewer via een lokale WebSocket bridge, waardoor wijzi
 
 ### Beheer-menu (G)
 
-Druk in-game op **G** (of open de mod via ModMenu) voor het overlaybeheer. Per laag: blok-icoon, naam en aantal blokken, **Verberg/Toon**, **Pin** en een kruisje om de laag uit Minecraft te halen. Onder de lagen de instellingen: **Zelfde niveau** (alle lagen op één hoogte, met een niveau-stepper; uit = elke laag een eigen stepper), **Reset hoogtes** (terug naar de AHN-starthoogte van de site), doorzichtigheid, **Weergave** (volledige blokken of dun tapijt) en **Spelerlocatie**. Onderaan **Alles wissen (behalve vastgezet)**. De kop toont het aantal blokken (maximaal 100.000) en of er een GDOK-viewer verbonden is.
+Druk in-game op **G** (of open de mod via ModMenu) voor het overlaybeheer. Per laag: blok-icoon, naam en aantal blokken, een **hoogte-stepper**, **Verberg/Toon**, **Pin** en een kruisje om de laag te verwijderen. Onder de lagen de instellingen: **Zelfde niveau** (alle losse lagen op één hoogte, met een niveau-stepper), **Reset hoogtes** (terug naar de AHN-starthoogte van de site), doorzichtigheid, **Weergave** (volledige blokken of dun tapijt) en **Spelerlocatie**. Onderaan **Alles wissen (behalve vastgezet)**. De kop toont het aantal blokken (maximaal 100.000) en of er een GDOK-viewer verbonden is.
 
-Hoe de mod met hoogte, pins en verbergen omgaat:
+Site en mod zijn **één systeem**: de viewer bepaalt wélke blokken er zijn, de mod bepaalt per laag de hoogte, of hij verborgen is en of hij vastgezet is, en beide kanten spiegelen elkaar direct.
 
-- De site stuurt bij elke laag een starthoogte uit het AHN; daarna is de **mod eigenaar van de hoogte**. Page Up / Page Down en de steppers in het menu verschuiven hem, ook terwijl je op de site doorverft.
-- **Pin** laat een laag staan bij "Wissen" op de site en bij "Alles wissen" in het menu. Een pin geldt voor de laag, niet voor de blokken: opnieuw verven op de site vervangt wel de inhoud. Het kruisje verwijdert altijd, ook een vastgezette laag.
-- **Verbergen** gebeurt in Minecraft; de site houdt de laag en blijft hem meesturen, maar de mod tekent hem niet.
-- Pins, verborgen lagen en het gedeelde niveau zijn **per sessie**: bij het verlaten van de server is alles weg. De eerste keer dat je op GeoCraft joint, krijg je eenmalig een chatregel die naar de G-toets wijst.
+- De site stuurt bij elke laag een starthoogte uit het AHN; daarna is de **mod eigenaar van de hoogte**. Page Up / Page Down en de niveau-stepper verschuiven alle losse lagen samen; de stepper in een rij verschuift alleen die laag (en zet hem daarmee vast, zie hieronder).
+- **Pin** (vastzetten) bevriest een laag: hij houdt zijn eigen hoogte en beweegt niet mee met Page Up/Down of het gedeelde niveau, en hij blijft staan bij "Wissen" op de site en bij "Alles wissen" in het menu. Een pin geldt voor de laag, niet voor de blokken: opnieuw verven op de site vervangt wel de inhoud. Het kruisje verwijdert altijd, ook een vastgezette laag.
+- **Verwijderen** in-game (kruisje of "Alles wissen") haalt de laag ook uit de viewer: de blokken gaan van de kaart en komen bij F5 of een rejoin niet terug. Verwijderen in de viewer haalt hem uit Minecraft.
+- **Verbergen** kan aan beide kanten (oog in het viewer-paneel, Verberg in het menu) en geldt aan beide kanten tegelijk; de laag blijft bestaan, de mod tekent hem alleen niet.
+- Pins, verborgen lagen en het gedeelde niveau zijn **per sessie**: bij het verlaten van de server is alles weg (de viewer stuurt verborgen lagen bij een rejoin wel opnieuw als verborgen mee). De eerste keer dat je op GeoCraft joint, krijg je eenmalig een chatregel die naar de G-toets wijst.
+- Protocol: de mod meldt zich bij het verbinden met `hello {protocol: 2}`; een oudere viewer negeert dat en werkt als voorheen, een nieuwe viewer tegen een oude mod (geen hello) valt terug op het 1.0.x-gedrag. Zie de klassedocumentatie van `BridgeServer` voor de berichten.
 
 ## Vanuit broncode compileren
 

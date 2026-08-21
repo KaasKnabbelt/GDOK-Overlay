@@ -33,11 +33,17 @@ import java.util.concurrent.ConcurrentHashMap;
  * that belonged to the previous location.</p>
  *
  * <h2>Pins and hidden layers</h2>
- * <p>Both are session-only and belong to the in-game menu. A pinned overlay survives
- * {@link #clearCategory} (the site's "Wissen" and the menu's "Alles wissen"), but not a
- * targeted {@link #removeOverlay} (the row's cross is explicit) and not a rejoin:
- * {@link #resetSession()} drops everything. A hidden overlay stays in the store (the site keeps
- * re-sending it) and is skipped by the renderer.</p>
+ * <p>Both are session-only and belong to the in-game menu. A <b>pinned</b> overlay is frozen
+ * as it is: it keeps its own Y (it ignores the shared level and PageUp/PageDown) and it
+ * survives {@link #clearCategory} (the site's "Wissen" and the menu's "Alles wissen"). It does
+ * not survive a targeted {@link #removeOverlay} (the row's cross is explicit) nor a rejoin:
+ * {@link #resetSession()} drops everything. Adjusting one row's height while the shared level
+ * is on pins that row first, so "this layer goes its own way" is one gesture. A <b>hidden</b>
+ * overlay stays in the store (the site keeps re-sending it) and is skipped by the renderer.</p>
+ *
+ * <p>The store itself does not talk to the site; the callers that change state in-game
+ * (menu, keybinds) broadcast the result through {@link BridgeServer}, so the GDOK viewer
+ * mirrors removals, visibility and pins and both sides stay one system.</p>
  */
 public class OverlayManager {
     private static final Logger LOGGER = LoggerFactory.getLogger("geocraft-overlay");
@@ -182,11 +188,17 @@ public class OverlayManager {
         bump();
     }
 
-    /** Menu stepper for one row: always moves that overlay's own Y, regardless of "same level". */
+    /**
+     * Menu stepper for one row: moves that overlay's own Y. While the shared level is on and
+     * the row still follows it, the row is pinned first (own Y = the level it was drawn at),
+     * so it detaches from the level instead of invisibly editing a hint nobody sees.
+     */
     public synchronized void adjustOverlayY(String id, int delta) {
         OverlayData existing = overlays.get(id);
         if (existing == null || delta == 0) return;
-        overlays.put(id, existing.withY(existing.y() + delta));
+        int from = getRenderY(existing);
+        if (sameLevel && levelY != null && !pinnedIds.contains(id)) pinnedIds.add(id);
+        overlays.put(id, existing.withY(from + delta));
         bump();
     }
 
@@ -241,14 +253,15 @@ public class OverlayManager {
     /**
      * PageUp/PageDown: shift the drawn height by {@code delta}. With "same level" on only the
      * shared level moves (one field, no per-overlay writes, no mesh rebuilds); otherwise every
-     * overlay's own Y shifts.
+     * unpinned overlay's own Y shifts. Pinned overlays never move.
      */
     public synchronized void adjustAllY(int delta) {
         if (delta == 0) return;
         if (sameLevel && levelY != null) {
             levelY = levelY + delta;
         } else {
-            overlays.replaceAll((key, overlay) -> overlay.withY(overlay.y() + delta));
+            overlays.replaceAll((key, overlay) ->
+                    pinnedIds.contains(key) ? overlay : overlay.withY(overlay.y() + delta));
         }
         bump();
     }
@@ -269,10 +282,34 @@ public class OverlayManager {
         return pinnedIds.contains(id);
     }
 
+    /**
+     * Pin = freeze: own height, immune to PageUp/PageDown, the shared level and bulk clears.
+     * Pinning while the shared level is on copies that level into the overlay's own Y, so the
+     * layer stays exactly where the player sees it; unpinning lets it rejoin the level.
+     */
     public synchronized void setPinned(String id, boolean pinned) {
-        if (!overlays.containsKey(id)) return;
-        boolean changed = pinned ? pinnedIds.add(id) : pinnedIds.remove(id);
-        if (changed) bump();
+        OverlayData existing = overlays.get(id);
+        if (existing == null) return;
+        if (pinned) {
+            if (!pinnedIds.add(id)) return;
+            int shown = sameLevel && levelY != null ? levelY : existing.y();
+            if (shown != existing.y()) overlays.put(id, existing.withY(shown));
+        } else {
+            if (!pinnedIds.remove(id)) return;
+        }
+        bump();
+    }
+
+    /** Ids of every overlay that {@link #clearCategory} would drop (i.e. the unpinned ones). */
+    public java.util.List<String> unpinnedIds(String category) {
+        boolean all = "all".equals(category);
+        java.util.List<String> ids = new java.util.ArrayList<>();
+        for (OverlayData o : overlays.values()) {
+            if (pinnedIds.contains(o.id())) continue;
+            if (!all && !o.category().equals(category)) continue;
+            ids.add(o.id());
+        }
+        return ids;
     }
 
     public int getOverlayCount() {
@@ -281,10 +318,13 @@ public class OverlayManager {
 
     // -- Rendering -------------------------------------------------
 
-    /** The Y level an overlay is drawn at: the shared level while "same level" is on, else its own Y. */
+    /**
+     * The Y level an overlay is drawn at: the shared level while "same level" is on and the
+     * overlay is not pinned, else its own Y.
+     */
     public int getRenderY(OverlayData overlay) {
         Integer level = levelY; // volatile: read once
-        return sameLevel && level != null ? level : overlay.y();
+        return sameLevel && level != null && !pinnedIds.contains(overlay.id()) ? level : overlay.y();
     }
 
     public Collection<OverlayData> getOverlays() {

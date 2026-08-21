@@ -134,21 +134,30 @@ public final class OverlayMenuState {
 
     public void setHidden(String id, boolean hidden) {
         manager.setHidden(id, hidden);
+        broadcastState(id);
     }
 
     public void setPinned(String id, boolean pinned) {
         manager.setPinned(id, pinned);
+        broadcastState(id);
     }
 
-    /** The row's cross: always removes, pinned or not. The site re-sends it on its next sync. */
+    /** The row's cross: always removes, pinned or not, and tells the site to drop it too. */
     public void remove(String id) {
         manager.removeOverlay(id);
+        BridgeServer bridge = BridgeServer.getInstance();
+        if (bridge != null) bridge.broadcastRemoved(id);
     }
 
-    /** Per-row stepper (same-level off): moves that overlay's own Y. */
+    /** Per-row stepper: moves that overlay's own Y (pins it first if it still followed the level). */
     public void shiftRow(String id, int delta) {
         manager.adjustOverlayY(id, delta);
-        broadcastHeights();
+        OverlayData o = manager.getOverlay(id);
+        BridgeServer bridge = BridgeServer.getInstance();
+        if (o != null && bridge != null) {
+            bridge.broadcastOverlayY(id, manager.getRenderY(o));
+            bridge.broadcastState(id);
+        }
     }
 
     // -- Actions: global -------------------------------------------------
@@ -181,9 +190,12 @@ public final class OverlayMenuState {
         config.setShareLocation(value);
     }
 
-    /** "Alles wissen (behalve vastgezet)". */
+    /** "Alles wissen (behalve vastgezet)": also tells the site which drawings to drop. */
     public void clearUnpinned() {
+        List<String> dropped = manager.unpinnedIds("all");
         manager.clearCategory("all");
+        BridgeServer bridge = BridgeServer.getInstance();
+        if (bridge != null) for (String id : dropped) bridge.broadcastRemoved(id);
     }
 
     /** Persist the config when the screen closes. */
@@ -194,5 +206,10 @@ public final class OverlayMenuState {
     private static void broadcastHeights() {
         BridgeServer bridge = BridgeServer.getInstance();
         if (bridge != null) bridge.broadcastOverlayYs();
+    }
+
+    private static void broadcastState(String id) {
+        BridgeServer bridge = BridgeServer.getInstance();
+        if (bridge != null) bridge.broadcastState(id);
     }
 }
