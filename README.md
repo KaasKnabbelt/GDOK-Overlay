@@ -28,7 +28,12 @@ De mod verbindt met de webviewer via een lokale WebSocket bridge, waardoor wijzi
 
 ### Beheer-menu (G)
 
-Druk in-game op **G** (of open de mod via ModMenu) voor het overlaybeheer. Per laag: blok-icoon, naam en aantal blokken, een **hoogte-stepper**, **Verberg/Toon**, **Pin** en een kruisje om de laag te verwijderen. Onder de lagen de instellingen: **Zelfde niveau** (alle losse lagen op één hoogte, met een niveau-stepper), **Reset hoogtes** (terug naar de AHN-starthoogte van de site), doorzichtigheid, **Weergave** (volledige blokken of dun tapijt) en **Spelerlocatie**. Onderaan **Alles wissen (behalve vastgezet)**. De kop toont het aantal blokken (maximaal 100.000) en of er een GDOK-viewer verbonden is.
+Druk in-game op **G** (of open de mod via ModMenu) voor het overlaybeheer. Het menu heeft twee standen, te wisselen met de **Menu**-knop onderaan de instellingen (onthouden in de config):
+
+- **Eenvoudig** (standaard): per laag blok-icoon, naam en aantal blokken, **Verberg/Toon** en een kruisje om de laag te verwijderen. Instellingen: één **Hoogte**-stepper die alle lagen samen verschuift (als Page Up/Down), doorzichtigheid en **Weergave** (volledige blokken of dun tapijt).
+- **Uitgebreid**: daarbovenop per laag een **hoogte-stepper** en **Pin**, plus de instellingen **Zelfde niveau** (alle losse lagen op één hoogte, met een niveau-stepper), **Reset hoogtes** (terug naar de AHN-starthoogte van de site), **Spelerlocatie** en **Toetsen aanpassen** (opent het toetsenscherm; de sneltoetsen van de mod staan daar in de eigen sectie "GDOK Overlay").
+
+Onderaan **Alles wissen (behalve vastgezet)**. De kop toont het aantal blokken (maximaal 100.000) en of er een GDOK-viewer verbonden is.
 
 Site en mod zijn **één systeem**: de viewer bepaalt wélke blokken er zijn, de mod bepaalt per laag de hoogte, of hij verborgen is en of hij vastgezet is, en beide kanten spiegelen elkaar direct.
 

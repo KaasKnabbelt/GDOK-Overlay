@@ -109,10 +109,12 @@ public class OverlayRenderer {
         context.submitNodeCollector().submitCustomGeometry(context.poseStack(), RenderTypes.debugQuads(), borderPass);
     }
 
-    /** Called every client tick: budgeted occupancy rescans. */
+    /** Called every client tick: budgeted occupancy rescans, nearest to the player first. */
     public void tick(Minecraft client) {
         if (client.level == null || cache.isEmpty()) return;
-        occupancy.tick(cache.entries(), probe);
+        double px = client.player != null ? client.player.getX() : camX;
+        double pz = client.player != null ? client.player.getZ() : camZ;
+        occupancy.tick(cache.entries(), probe, px, pz);
     }
 
     /** Vertices emitted in the last slab pass (diagnostics/gametests). */
@@ -122,6 +124,15 @@ public class OverlayRenderer {
 
     public void onChunkLoad(int chunkX, int chunkZ) {
         cache.markChunkDirty(chunkX, chunkZ);
+    }
+
+    /**
+     * A block was placed or broken at the given column (Fabric interaction events in
+     * {@link GeoOverlayMod}): rescan that chunk's occupancy next tick instead of waiting
+     * for the slow round-robin.
+     */
+    public void onBlockChanged(int x, int z) {
+        cache.markChunkDirty(x >> 4, z >> 4);
     }
 
     // -- Passes -------------------------------------------------------

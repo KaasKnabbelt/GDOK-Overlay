@@ -126,6 +126,11 @@ public final class OverlayMenuState {
         return config.isShareLocation();
     }
 
+    /** Advanced menu mode (per-layer steppers/pins, shared level, location, keybinds). */
+    public boolean advancedMenu() {
+        return config.isAdvancedMenu();
+    }
+
     public static String renderModeLabel(RenderMode mode) {
         return mode == RenderMode.CARPET ? "Dun tapijt" : "Volledige blokken";
     }
@@ -188,6 +193,11 @@ public final class OverlayMenuState {
     /** Caller must also refresh the player tracker (module-specific). */
     public void setShareLocation(boolean value) {
         config.setShareLocation(value);
+    }
+
+    /** The screen watches this via its tick and rebuilds its rows on a change. */
+    public void setAdvancedMenu(boolean value) {
+        config.setAdvancedMenu(value);
     }
 
     /** "Alles wissen (behalve vastgezet)": also tells the site which drawings to drop. */

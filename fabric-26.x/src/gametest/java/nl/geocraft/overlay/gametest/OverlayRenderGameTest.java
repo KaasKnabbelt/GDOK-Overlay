@@ -163,13 +163,14 @@ public class OverlayRenderGameTest implements FabricClientGameTest {
             LOGGER.info("[gametest] na resource-reload magenta-fractie = {}", magentaReloaded);
             assertThat(magentaReloaded > 0.5, "overlay kapot na resource-reload: " + magentaReloaded);
 
-            // 10. Beheer-menu (G): een paar lagen met verschillende staat, scherm open, screenshot
-            //     in beide niveau-standen. De pixels worden niet gemeten; de screenshots zijn voor
-            //     de visuele controle van de layout op deze MC-versie.
+            // 10. Beheer-menu (G): een paar lagen met verschillende staat, scherm open, screenshots
+            //     van de eenvoudige en de uitgebreide modus (en de niveau-standen). De pixels worden
+            //     niet gemeten; de screenshots zijn voor de visuele controle van de layout per MC-versie.
             ctx.runOnClient(mc -> {
                 OverlayManager m = OverlayManager.getInstance();
                 m.resetSession();
                 OverlayConfig.getInstance().setSameLevel(true);
+                OverlayConfig.getInstance().setAdvancedMenu(false);
                 m.addOverlay(square("paint_magenta_wool", "paint", 0, 0, 16, OVERLAY_Y, "magenta_wool", 255, 0, 255));
                 m.addOverlay(new OverlayData("paint_oak_planks", "paint", square("x", "paint", 20, 0, 40, OVERLAY_Y + 3, "oak_planks", 0, 0, 0).blocks(),
                         OVERLAY_Y + 3, 180, 140, 80, 255, "Eiken planken (1600)", "oak_planks"));
@@ -182,19 +183,76 @@ public class OverlayRenderGameTest implements FabricClientGameTest {
                 mc.gui.setScreen(new OverlayManagerScreen());
             });
             ctx.waitTicks(20);
-            ctx.takeScreenshot("10-menu-same-level");
+            ctx.takeScreenshot("10-menu-eenvoudig");
+            ctx.runOnClient(mc -> OverlayConfig.getInstance().setAdvancedMenu(true));
+            ctx.waitTicks(10);
+            ctx.takeScreenshot("10b-menu-uitgebreid-same-level");
             ctx.runOnClient(mc -> OverlayConfig.getInstance().setSameLevel(false));
             ctx.waitTicks(10);
-            ctx.takeScreenshot("11-menu-own-heights");
+            ctx.takeScreenshot("10c-menu-uitgebreid-own-heights");
             boolean menuOpen = ctx.computeOnClient(mc -> mc.gui.screen() instanceof OverlayManagerScreen);
             assertThat(menuOpen, "beheer-menu staat niet open");
             ctx.runOnClient(mc -> {
                 ((OverlayManagerScreen) mc.gui.screen()).onClose();
                 OverlayConfig.getInstance().setSameLevel(true);
+                OverlayConfig.getInstance().setAdvancedMenu(false);
             });
             ctx.waitTicks(5);
             boolean menuClosed = ctx.computeOnClient(mc -> mc.gui.screen() == null);
             assertThat(menuClosed, "beheer-menu sluit niet via Klaar");
+
+            // 11. Onderkant: overlay boven de speler, recht omhoog kijken; de bodem moet dicht zijn
+            //     (zonder bodemvlak zie je hier lucht).
+            ctx.runOnClient(mc -> {
+                OverlayManager m = OverlayManager.getInstance();
+                m.resetSession();
+                m.addOverlay(square("paint_magenta_wool", "paint", 0, 0, 16, OVERLAY_Y + 6, "magenta_wool", 255, 0, 255));
+            });
+            sp.getServer().runCommand("tp @a 8.5 -60 8.5 0 -90");
+            ctx.waitTicks(20);
+            Path below = ctx.takeScreenshot("11-bottom-face");
+            double magentaBelow = ScreenshotProbe.centralFraction(below, ScreenshotProbe::isDarkMagenta);
+            LOGGER.info("[gametest] onderkant magenta-fractie = {}", magentaBelow);
+            assertThat(magentaBelow > 0.5, "onderkant van de overlay is open: " + magentaBelow);
+
+            // 12. Eerste persoon: de arm/het vastgehouden blok rechtsonder moet vóór de overlay
+            //     blijven (regressie op "overlay rendert over de rechterhand"). Creative met een
+            //     blok in de hand, steil omlaag kijkend op een maaiveld-overlay.
+            ctx.runOnClient(mc -> {
+                OverlayManager m = OverlayManager.getInstance();
+                m.resetSession();
+                m.addOverlay(square("paint_magenta_wool", "paint", 0, 0, 16, OVERLAY_Y, "magenta_wool", 255, 0, 255));
+            });
+            sp.getServer().runCommand("gamemode creative @a");
+            sp.getServer().runCommand("tp @a 8.5 -60 8.5 0 65");
+            // Een blok in de hand, zoals een bouwer die in een overlay aan het plaatsen is;
+            // het vastgehouden item rendert via een ander pad dan de blote arm.
+            sp.getServer().runCommand("give @a minecraft:stone 1");
+            ctx.getInput().pressKey(GLFW.GLFW_KEY_F1); // GUI terug: F1 verbergt óók de first-person arm
+            ctx.waitTicks(20);
+            ctx.runOnClient(mc -> OverlayManager.getInstance().setHidden("paint_magenta_wool", true));
+            ctx.waitTicks(10);
+            Path handControl = ctx.takeScreenshot("12a-hand-control");
+            double handControlMagenta = ScreenshotProbe.regionFraction(handControl, 0.70, 0.55, 0.98, 0.98, ScreenshotProbe::isMagenta);
+            LOGGER.info("[gametest] hand-regio magenta (controle, overlay verborgen) = {}", handControlMagenta);
+            ctx.runOnClient(mc -> OverlayManager.getInstance().setHidden("paint_magenta_wool", false));
+            ctx.waitTicks(10);
+            Path handFull = ctx.takeScreenshot("12-hand-fullblock");
+            double handFullMagenta = ScreenshotProbe.regionFraction(handFull, 0.70, 0.55, 0.98, 0.98, ScreenshotProbe::isMagenta);
+            // Premisse-meting rechtsboven: daar ligt alleen de overlay (het midden en links
+            // worden door de chatgeschiedenis en de hotbar bedekt nu de GUI aan staat).
+            double handFullTop = ScreenshotProbe.regionFraction(handFull, 0.55, 0.05, 0.95, 0.35, ScreenshotProbe::isMagenta);
+            LOGGER.info("[gametest] hand-regio magenta (fullblock) = {} (rechtsboven = {})", handFullMagenta, handFullTop);
+            ctx.runOnClient(mc -> OverlayConfig.getInstance().setRenderMode(RenderMode.CARPET));
+            ctx.waitTicks(10);
+            Path handCarpet = ctx.takeScreenshot("12b-hand-carpet");
+            double handCarpetMagenta = ScreenshotProbe.regionFraction(handCarpet, 0.70, 0.55, 0.98, 0.98, ScreenshotProbe::isMagenta);
+            LOGGER.info("[gametest] hand-regio magenta (carpet) = {}", handCarpetMagenta);
+            ctx.runOnClient(mc -> OverlayConfig.getInstance().setRenderMode(RenderMode.FULLBLOCK));
+            assertThat(handFullTop > 0.5, "overlay niet in beeld bij de hand-check: " + handFullTop);
+            assertThat(handFullMagenta < 0.85, "overlay rendert over de arm heen (fullblock): " + handFullMagenta);
+            assertThat(handCarpetMagenta < 0.85, "overlay rendert over de arm heen (carpet): " + handCarpetMagenta);
+            ctx.getInput().pressKey(GLFW.GLFW_KEY_F1);
 
             ctx.runOnClient(mc -> OverlayManager.getInstance().resetSession());
             ctx.waitTicks(5);

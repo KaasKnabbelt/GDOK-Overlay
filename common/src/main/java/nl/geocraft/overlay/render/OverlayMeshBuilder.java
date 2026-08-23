@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+import static nl.geocraft.overlay.render.VertexSink.FACE_DOWN;
 import static nl.geocraft.overlay.render.VertexSink.FACE_EAST;
 import static nl.geocraft.overlay.render.VertexSink.FACE_NORTH;
 import static nl.geocraft.overlay.render.VertexSink.FACE_SOUTH;
@@ -16,11 +17,11 @@ import static nl.geocraft.overlay.render.VertexSink.FACE_WEST;
  * Builds a {@link BakedOverlayMesh} from an overlay: pure geometry, no Minecraft types.
  *
  * <p>Neighbour lookups use a sorted {@code long[]} of packed positions and
- * {@link Arrays#binarySearch}: no boxing, no dependencies. The top face is always emitted;
- * side faces only where there is no overlay neighbour (same rule as the pre-1.1.0 renderer,
- * so the face culling is identical). Carpet mode gives a 0.1-high slab with the side V
- * coordinates scaled to the height; full-block mode a 1.0-high block. There is no bottom
- * face in either mode.</p>
+ * {@link Arrays#binarySearch}: no boxing, no dependencies. The top and bottom faces are
+ * always emitted (an overlay can float above the player, so the underside must be closed
+ * too); side faces only where there is no overlay neighbour (same rule as the pre-1.1.0
+ * renderer, so the face culling is identical). Carpet mode gives a 0.1-high slab with the
+ * side V coordinates scaled to the height; full-block mode a 1.0-high block.</p>
  */
 public final class OverlayMeshBuilder {
 
@@ -136,6 +137,13 @@ public final class OverlayMeshBuilder {
             verts.add(x, y1, z + 1, u0, v1);
             verts.add(x + 1, y1, z + 1, u1, v1);
             verts.add(x + 1, y1, z, u1, v0);
+
+            // Bottom face (always; counter-clockwise seen from below)
+            faces.add(FACE_DOWN);
+            verts.add(x, y0, z, u0, v0);
+            verts.add(x + 1, y0, z, u1, v0);
+            verts.add(x + 1, y0, z + 1, u1, v1);
+            verts.add(x, y0, z + 1, u0, v1);
 
             // Side faces only on exterior edges
             if (!hasNorth) {

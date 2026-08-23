@@ -29,11 +29,15 @@ import java.util.List;
 
 /**
  * In-game overlay manager (G, and ModMenu). A dumb widget layout over
- * {@link OverlayMenuState}: one scrollable list with a row per overlay (icon, name, block
- * count, Y-stepper, show/hide, pin, remove) followed by the global settings rows, a status
- * header (block counter + viewer connection) and a footer with "Alles wissen (behalve
- * vastgezet)" and "Klaar". Rows rebuild whenever the overlay store's revision changes, so
- * painting on the site while the menu is open shows up live.
+ * {@link OverlayMenuState}: one scrollable list with a row per overlay followed by the
+ * global settings rows, a status header (block counter + viewer connection) and a footer
+ * with "Alles wissen (behalve vastgezet)" and "Klaar". Rows rebuild whenever the overlay
+ * store's revision changes, so painting on the site while the menu is open shows up live.
+ *
+ * <p>The menu has two modes (config {@code advancedMenu}, toggled by the "Menu" row).
+ * <b>Eenvoudig</b> (default): per row icon, name, count, show/hide and remove; settings are
+ * one shared height stepper, opacity and render mode. <b>Uitgebreid</b> adds the per-row
+ * Y-stepper and pin, the same-level row, location sharing and the keybinds shortcut.</p>
  *
  * <p>Yarn twin of the mojmap screen in {@code fabric-26.x}; keep the two in step.</p>
  */
@@ -54,6 +58,7 @@ public class OverlayManagerScreen extends Screen {
     private TextWidget statusWidget;
     private long shownRevision = -1;
     private boolean shownSameLevel;
+    private boolean shownAdvanced;
 
     public OverlayManagerScreen() {
         this(null);
@@ -99,7 +104,9 @@ public class OverlayManagerScreen extends Screen {
     public void tick() {
         super.tick();
         statusWidget.setMessage(statusText());
-        if (state.revision() != shownRevision || state.sameLevel() != shownSameLevel) {
+        if (state.revision() != shownRevision
+                || state.sameLevel() != shownSameLevel
+                || state.advancedMenu() != shownAdvanced) {
             rebuildEntries();
         }
     }
@@ -130,6 +137,7 @@ public class OverlayManagerScreen extends Screen {
     private void rebuildEntries() {
         shownRevision = state.revision();
         shownSameLevel = state.sameLevel();
+        shownAdvanced = state.advancedMenu();
         double scroll = list.getScrollY();
         list.rebuild();
         list.setScrollY(scroll);
@@ -144,17 +152,25 @@ public class OverlayManagerScreen extends Screen {
         }
 
         void rebuild() {
+            boolean advanced = state.advancedMenu();
             clearEntries();
             List<OverlayMenuState.Row> rows = state.rows();
             if (rows.isEmpty()) {
                 addEntry(new TextEntry(Text.literal("Geen overlays. Teken iets in de GDOK viewer.").withColor(GREY)));
             } else {
-                for (OverlayMenuState.Row row : rows) addEntry(new RowEntry(row));
+                for (OverlayMenuState.Row row : rows) addEntry(new RowEntry(row, advanced));
             }
             addEntry(new TextEntry(Text.literal("Instellingen").withColor(WHITE)));
-            addEntry(new LevelEntry());
+            if (advanced) {
+                addEntry(new LevelEntry());
+            } else {
+                addEntry(new SimpleLevelEntry());
+            }
             addEntry(new LookEntry());
-            addEntry(new MiscEntry());
+            if (advanced) {
+                addEntry(new MiscEntry());
+            }
+            addEntry(new MenuModeEntry());
             addEntry(new TextEntry(Text.literal("Page Up / Page Down past de hoogte ook buiten dit menu aan.").withColor(GREY)));
         }
 
@@ -223,20 +239,21 @@ public class OverlayManagerScreen extends Screen {
         }
     }
 
-    /** One overlay. */
+    /** One overlay. In the simple menu the per-row stepper and pin are left out. */
     private class RowEntry extends Entry {
         private final OverlayMenuState.Row row;
         private final ItemStack icon;
-        private final Stepper stepper;
+        private final @Nullable Stepper stepper;
         private final ButtonWidget visibility;
-        private final ButtonWidget pin;
+        private final @Nullable ButtonWidget pin;
         private final ButtonWidget remove;
         private final List<ClickableWidget> children = new ArrayList<>();
 
-        RowEntry(OverlayMenuState.Row row) {
+        RowEntry(OverlayMenuState.Row row, boolean advanced) {
             this.row = row;
             this.icon = row.isMarker() ? ItemStack.EMPTY : new ItemStack(resolveBlock(row.tag()).asItem());
-            this.stepper = new Stepper(() -> state.shiftRow(row.id(), -1), () -> state.shiftRow(row.id(), 1),
+            this.stepper = !advanced ? null
+                    : new Stepper(() -> state.shiftRow(row.id(), -1), () -> state.shiftRow(row.id(), 1),
                     "Hoogte van alleen deze laag. Volgt de laag nog het gedeelde niveau, dan wordt hij hiermee vastgezet.");
             this.visibility = ButtonWidget.builder(Text.literal(row.hidden() ? "Toon" : "Verberg"),
                             b -> state.setHidden(row.id(), !row.hidden()))
@@ -245,7 +262,8 @@ public class OverlayManagerScreen extends Screen {
                             ? "Deze laag is verborgen in Minecraft. Klik om hem weer te tonen."
                             : "Verberg deze laag in Minecraft (de site houdt hem gewoon).")))
                     .build();
-            this.pin = ButtonWidget.builder(Text.literal(row.pinned() ? "Vast" : "Pin"),
+            this.pin = !advanced ? null
+                    : ButtonWidget.builder(Text.literal(row.pinned() ? "Vast" : "Pin"),
                             b -> state.setPinned(row.id(), !row.pinned()))
                     .size(34, 20)
                     .tooltip(Tooltip.of(Text.literal(row.pinned()
@@ -258,9 +276,9 @@ public class OverlayManagerScreen extends Screen {
                     .size(20, 20)
                     .tooltip(Tooltip.of(Text.literal("Verwijder deze laag, ook uit de GDOK viewer (de blokken gaan daar van de kaart).")))
                     .build();
-            children.addAll(stepper.widgets());
+            if (stepper != null) children.addAll(stepper.widgets());
             children.add(visibility);
-            children.add(pin);
+            if (pin != null) children.add(pin);
             children.add(remove);
         }
 
@@ -271,12 +289,17 @@ public class OverlayManagerScreen extends Screen {
 
             x -= remove.getWidth();
             remove.setPosition(x, y);
-            x -= GAP + pin.getWidth();
-            pin.setPosition(x, y);
+            if (pin != null) {
+                x -= GAP + pin.getWidth();
+                pin.setPosition(x, y);
+            }
             x -= GAP + visibility.getWidth();
             visibility.setPosition(x, y);
-            x -= GAP + Stepper.WIDTH;
             int stepperX = x;
+            if (stepper != null) {
+                x -= GAP + Stepper.WIDTH;
+                stepperX = x;
+            }
 
             // Icon: the block's item, or a colour swatch for the (tag-less) marker.
             int iconX = getContentX();
@@ -299,11 +322,15 @@ public class OverlayManagerScreen extends Screen {
                     + (row.hidden() ? " · verborgen" : "") + (row.pinned() ? " · vast" : "");
             context.drawTextWithShadow(textRenderer, textRenderer.trimToWidth(count, textRoom), textX, getContentMiddleY() + 1, GREY);
 
-            for (ClickableWidget w : List.of(visibility, pin, remove)) w.render(context, mouseX, mouseY, delta);
+            visibility.render(context, mouseX, mouseY, delta);
+            if (pin != null) pin.render(context, mouseX, mouseY, delta);
+            remove.render(context, mouseX, mouseY, delta);
             // De stepper toont de getekende hoogte; stappen op een laag die nog het gedeelde
             // niveau volgt zet hem vast (zie OverlayManager.adjustOverlayY).
-            stepper.place(stepperX, y);
-            stepper.render(context, mouseX, mouseY, delta, Integer.toString(row.renderY()));
+            if (stepper != null) {
+                stepper.place(stepperX, y);
+                stepper.render(context, mouseX, mouseY, delta, Integer.toString(row.renderY()));
+            }
         }
 
         @Override
@@ -357,6 +384,26 @@ public class OverlayManagerScreen extends Screen {
         }
     }
 
+    /** Simple-mode settings row: one height stepper that moves every layer (as Page Up/Down). */
+    private class SimpleLevelEntry extends Entry {
+        private final Stepper stepper = new Stepper(() -> state.shiftLevel(-1), () -> state.shiftLevel(1),
+                "Hoogte van alle lagen (als Page Up / Page Down)");
+
+        @Override
+        public void render(DrawContext context, int mouseX, int mouseY, boolean hovered, float delta) {
+            int y = getContentY() + (getContentHeight() - 20) / 2;
+            context.drawTextWithShadow(textRenderer, "Hoogte", getContentMiddleX() - 155, getContentMiddleY() - 4, WHITE);
+            Integer level = state.levelY();
+            stepper.place(getContentMiddleX() + 5, y);
+            stepper.render(context, mouseX, mouseY, delta, level != null ? level.toString() : "-");
+        }
+
+        @Override
+        public List<? extends Element> children() {
+            return stepper.widgets();
+        }
+    }
+
     /** Settings row: opacity slider + render mode. */
     private class LookEntry extends Entry {
         private final OpacitySlider slider = new OpacitySlider(state.opacityPercent());
@@ -380,7 +427,7 @@ public class OverlayManagerScreen extends Screen {
         }
     }
 
-    /** Settings row: player location sharing. */
+    /** Advanced settings row: player location sharing + the keybinds shortcut. */
     private class MiscEntry extends Entry {
         private final CyclingButtonWidget<Boolean> share = CyclingButtonWidget.onOffBuilder(state.shareLocation())
                 .tooltip(v -> Tooltip.of(Text.literal(
@@ -389,17 +436,52 @@ public class OverlayManagerScreen extends Screen {
                     state.setShareLocation(v);
                     GeoOverlayMod.refreshPlayerTracking();
                 });
+        private final ButtonWidget keybinds = ButtonWidget.builder(Text.literal("Toetsen aanpassen..."),
+                        b -> {
+                            if (client != null) {
+                                client.setScreen(new net.minecraft.client.gui.screen.option.KeybindsScreen(
+                                        OverlayManagerScreen.this, client.options));
+                            }
+                        })
+                .size(150, 20)
+                .tooltip(Tooltip.of(Text.literal("Opent het toetsenscherm; de sneltoetsen van de mod staan onder \"GDOK Overlay\".")))
+                .build();
 
         @Override
         public void render(DrawContext context, int mouseX, int mouseY, boolean hovered, float delta) {
             int y = getContentY() + (getContentHeight() - 20) / 2;
             share.setPosition(getContentMiddleX() - 155, y);
             share.render(context, mouseX, mouseY, delta);
+            keybinds.setPosition(getContentMiddleX() + 5, y);
+            keybinds.render(context, mouseX, mouseY, delta);
         }
 
         @Override
         public List<? extends Element> children() {
-            return List.of(share);
+            return List.of(share, keybinds);
+        }
+    }
+
+    /** Settings row: simple/advanced menu toggle (config, persisted on close). */
+    private class MenuModeEntry extends Entry {
+        private final CyclingButtonWidget<Boolean> mode = CyclingButtonWidget.<Boolean>builder(
+                        v -> Text.literal(v ? "Uitgebreid" : "Eenvoudig"), state.advancedMenu())
+                .values(Boolean.FALSE, Boolean.TRUE)
+                .tooltip(v -> Tooltip.of(Text.literal(v
+                        ? "Alle knoppen: hoogte en vastzetten per laag, gedeeld niveau, spelerlocatie en sneltoetsen."
+                        : "Alleen de basis: lagen tonen, verbergen en verwijderen, hoogte, doorzichtigheid en weergave.")))
+                .build(0, 0, 150, 20, Text.literal("Menu"), (b, v) -> state.setAdvancedMenu(v));
+
+        @Override
+        public void render(DrawContext context, int mouseX, int mouseY, boolean hovered, float delta) {
+            int y = getContentY() + (getContentHeight() - 20) / 2;
+            mode.setPosition(getContentMiddleX() - 155, y);
+            mode.render(context, mouseX, mouseY, delta);
+        }
+
+        @Override
+        public List<? extends Element> children() {
+            return List.of(mode);
         }
     }
 

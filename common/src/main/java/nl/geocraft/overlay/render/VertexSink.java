@@ -21,6 +21,8 @@ public interface VertexSink {
     int FACE_WEST = 3;
     /** +X */
     int FACE_EAST = 4;
+    /** -Y */
+    int FACE_DOWN = 5;
 
     /** Textured vertex of a slab face. {@code face} is one of the {@code FACE_*} constants (drives the normal). */
     void vertex(float x, float y, float z, float u, float v, int face);

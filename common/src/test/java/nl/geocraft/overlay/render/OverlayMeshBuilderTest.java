@@ -15,9 +15,10 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The baked mesh must emit exactly the same quads as the pre-1.1.0 per-frame renderer
- * (top face always, side faces only on exterior edges, border quads at y+1 on occupied
- * positions). The reference implementation below is a straight port of that renderer.
+ * The baked mesh must emit exactly the same quads as the reference renderer below: a straight
+ * port of the pre-1.1.0 per-frame renderer (top face always, side faces only on exterior
+ * edges, border quads at y+1 on occupied positions) plus the bottom face that was added for
+ * 1.1.1 (the pre-1.1.0 renderer had none, which left full blocks open at the underside).
  */
 class OverlayMeshBuilderTest {
 
@@ -80,6 +81,10 @@ class OverlayMeshBuilderTest {
             sink.vertex(x, y1, z + 1, u0, v1, VertexSink.FACE_UP);
             sink.vertex(x + 1, y1, z + 1, u1, v1, VertexSink.FACE_UP);
             sink.vertex(x + 1, y1, z, u1, v0, VertexSink.FACE_UP);
+            sink.vertex(x, y0, z, u0, v0, VertexSink.FACE_DOWN);
+            sink.vertex(x + 1, y0, z, u1, v0, VertexSink.FACE_DOWN);
+            sink.vertex(x + 1, y0, z + 1, u1, v1, VertexSink.FACE_DOWN);
+            sink.vertex(x, y0, z + 1, u0, v1, VertexSink.FACE_DOWN);
             if (!hasNorth) {
                 sink.vertex(x, y1, z, u1, vSide0, VertexSink.FACE_NORTH);
                 sink.vertex(x + 1, y1, z, u0, vSide0, VertexSink.FACE_NORTH);
@@ -200,10 +205,10 @@ class OverlayMeshBuilderTest {
     // -- tests -----------------------------------------------------------------
 
     @Test
-    void singleBlockCarpetHasTopAndFourSides() {
+    void singleBlockCarpetHasTopBottomAndFourSides() {
         BakedOverlayMesh mesh = OverlayMeshBuilder.build(overlay("stone", new OverlayData.BlockPos(5, 5)), RenderMode.CARPET, UV);
         assertEquals(1, mesh.buckets().length);
-        assertEquals(5, mesh.buckets()[0].slabQuadCount());
+        assertEquals(6, mesh.buckets()[0].slabQuadCount());
         assertEquals(4, mesh.buckets()[0].borderQuadCount());
         assertEquals(1, mesh.blockCount());
     }
@@ -212,8 +217,8 @@ class OverlayMeshBuilderTest {
     void twoAdjacentBlocksShareNoInteriorFace() {
         BakedOverlayMesh mesh = OverlayMeshBuilder.build(
                 overlay("stone", new OverlayData.BlockPos(0, 0), new OverlayData.BlockPos(1, 0)), RenderMode.FULLBLOCK, UV);
-        // 2 tops + 2*3 exterior sides = 8 quads; interior east/west pair culled
-        assertEquals(8, mesh.buckets()[0].slabQuadCount());
+        // 2 tops + 2 bottoms + 2*3 exterior sides = 10 quads; interior east/west pair culled
+        assertEquals(10, mesh.buckets()[0].slabQuadCount());
         assertEquals(6, mesh.buckets()[0].borderQuadCount());
     }
 
@@ -300,7 +305,7 @@ class OverlayMeshBuilderTest {
         scanAll(mesh, Set.of(), 64);
         CollectingSink sink = new CollectingSink();
         mesh.replaySlabs(sink, null, 0, 64, 0, 64, 256);
-        assertEquals(5, sink.quads.size());
+        assertEquals(6, sink.quads.size());
     }
 
     @Test
@@ -342,19 +347,45 @@ class OverlayMeshBuilderTest {
         assertTrue(buckets > OccupancyUpdater.DIRTY_BUDGET * 2);
 
         OccupancyUpdater updater = new OccupancyUpdater();
-        updater.tick(cache.entries(), (x, y, z) -> true);
+        updater.tick(cache.entries(), (x, y, z) -> true, 0, 0);
         int clean = 0;
         for (BakedOverlayMesh.Bucket b : mesh.buckets()) if (!b.isDirty()) clean++;
         assertTrue(clean >= OccupancyUpdater.DIRTY_BUDGET && clean <= OccupancyUpdater.DIRTY_BUDGET + OccupancyUpdater.ROUND_ROBIN_BUDGET);
 
         int ticks = 0;
         while (mesh.hasDirtyBuckets() && ticks < 10_000) {
-            updater.tick(cache.entries(), (x, y, z) -> true);
+            updater.tick(cache.entries(), (x, y, z) -> true, 0, 0);
             ticks++;
         }
         assertFalse(mesh.hasDirtyBuckets());
         for (BakedOverlayMesh.Bucket b : mesh.buckets()) {
             for (int i = 0; i < b.blockCount(); i++) assertTrue(b.isOccupied(i));
         }
+    }
+
+    @Test
+    void occupancyUpdaterScansNearbyBucketsFirst() {
+        OverlayData overlay = randomOverlay(9, 4000, 400); // far more buckets than one tick's budget
+        MeshCache cache = new MeshCache();
+        cache.reconcile(List.of(overlay), RenderMode.FULLBLOCK, tag -> UV, false);
+        BakedOverlayMesh mesh = cache.entries().get(0).mesh;
+        mesh.setRenderY(64);
+
+        double px = -40, pz = 17; // centre of the random spread (see randomOverlay)
+        new OccupancyUpdater().tick(cache.entries(), (x, y, z) -> true, px, pz);
+
+        // Every dirty bucket near the player must be rescanned in the very first tick.
+        double nearSq = OccupancyUpdater.NEAR_RADIUS * OccupancyUpdater.NEAR_RADIUS;
+        int nearTotal = 0;
+        for (BakedOverlayMesh.Bucket b : mesh.buckets()) {
+            double dx = b.centerX - px, dz = b.centerZ - pz;
+            if (dx * dx + dz * dz <= nearSq) {
+                nearTotal++;
+                assertFalse(b.isDirty(), "nearby bucket still dirty after one tick");
+            }
+        }
+        assertTrue(nearTotal > 0, "test premise: player stands inside the overlay");
+        assertTrue(nearTotal <= OccupancyUpdater.DIRTY_BUDGET, "test premise: near set fits one tick's budget");
+        assertTrue(mesh.hasDirtyBuckets(), "test premise: far buckets remain for later ticks");
     }
 }

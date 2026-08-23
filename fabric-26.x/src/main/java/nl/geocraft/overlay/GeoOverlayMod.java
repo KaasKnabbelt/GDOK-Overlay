@@ -8,6 +8,7 @@ import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 import net.minecraft.client.KeyMapping;
+import net.minecraft.resources.Identifier;
 import com.mojang.blaze3d.platform.InputConstants;
 import org.lwjgl.glfw.GLFW;
 import org.slf4j.Logger;
@@ -25,16 +26,24 @@ public class GeoOverlayMod implements ClientModInitializer {
     /** Ticks until the one-time "druk op G" chat hint; 0 = not armed. Delayed so the chat HUD is up. */
     private int gKeyHintTicks = 0;
 
+    /**
+     * Eigen sectie "GDOK Overlay" in het toetsenscherm (label in assets/.../lang). De
+     * keybind-namen zelf blijven de oude strings, zodat bestaande rebinds in options.txt
+     * geldig blijven.
+     */
+    private static final KeyMapping.Category KEY_CATEGORY =
+            KeyMapping.Category.register(Identifier.fromNamespaceAndPath(MOD_ID, "gdok"));
+
     private static final KeyMapping SETTINGS_KEY = KeyMappingHelper.registerKeyMapping(
-            new KeyMapping("GDOK Settings", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_G, KeyMapping.Category.MISC)
+            new KeyMapping("GDOK Settings", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_G, KEY_CATEGORY)
     );
 
     private static final KeyMapping Y_UP_KEY = KeyMappingHelper.registerKeyMapping(
-            new KeyMapping("GDOK Overlay omhoog", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_PAGE_UP, KeyMapping.Category.MISC)
+            new KeyMapping("GDOK Overlay omhoog", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_PAGE_UP, KEY_CATEGORY)
     );
 
     private static final KeyMapping Y_DOWN_KEY = KeyMappingHelper.registerKeyMapping(
-            new KeyMapping("GDOK Overlay omlaag", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_PAGE_DOWN, KeyMapping.Category.MISC)
+            new KeyMapping("GDOK Overlay omlaag", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_PAGE_DOWN, KEY_CATEGORY)
     );
 
     @Override
@@ -71,6 +80,22 @@ public class GeoOverlayMod implements ClientModInitializer {
         // Occupancy-bits van net geladen chunks opnieuw scannen (zie OccupancyUpdater).
         ClientChunkEvents.CHUNK_LOAD.register((level, chunk) ->
                 renderer.onChunkLoad(chunk.getPos().x(), chunk.getPos().z()));
+
+        // Zelf een blok breken of plaatsen: markeer de chunk meteen dirty, zodat de overlay
+        // binnen een tick omschakelt in plaats van te wachten op de trage round-robin-scan.
+        net.fabricmc.fabric.api.event.client.player.ClientPlayerBlockBreakEvents.AFTER.register(
+                (level, player, pos, state) -> renderer.onBlockChanged(pos.getX(), pos.getZ()));
+        net.fabricmc.fabric.api.event.player.UseBlockCallback.EVENT.register((player, level, hand, hitResult) -> {
+            if (level.isClientSide()) {
+                // Het geplaatste blok landt op de aangeklikte positie of de buurpositie
+                // aan de aangeklikte zijde; markeer beide (meestal dezelfde chunk).
+                var pos = hitResult.getBlockPos();
+                renderer.onBlockChanged(pos.getX(), pos.getZ());
+                var placed = pos.relative(hitResult.getDirection());
+                renderer.onBlockChanged(placed.getX(), placed.getZ());
+            }
+            return net.minecraft.world.InteractionResult.PASS;
+        });
 
         BungeeCordChannel.register(serverName -> {
             ServerGate.getInstance().setCurrentSubserver(serverName);

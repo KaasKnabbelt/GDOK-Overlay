@@ -7,7 +7,7 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.render.RenderLayer;
 import net.minecraft.client.render.RenderLayers;
 import net.minecraft.client.render.VertexConsumer;
-import net.minecraft.client.render.command.OrderedRenderCommandQueue;
+import net.minecraft.client.render.VertexConsumerProvider;
 import net.minecraft.client.texture.Sprite;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.client.world.ClientWorld;
@@ -39,8 +39,8 @@ public class OverlayRenderer {
     private final OccupancyUpdater occupancy = new OccupancyUpdater();
     private final McVertexSink sink = new McVertexSink();
     private final RenderLayer slabRenderLayer = RenderLayers.entityTranslucent(BLOCK_ATLAS);
-    private final OrderedRenderCommandQueue.Custom slabPass = this::drawSlabs;
-    private final OrderedRenderCommandQueue.Custom borderPass = this::drawBorders;
+    /** Identity pose for the buffered draws: the replayed vertices are already camera-relative. */
+    private final MatrixStack identityMatrices = new MatrixStack();
     private final BlockPos.Mutable probePos = new BlockPos.Mutable();
     private final OccupancyProbe probe = this::isOccupied;
     private final MeshCache.UvLookup uvLookup = this::lookupUv;
@@ -105,14 +105,28 @@ public class OverlayRenderer {
             e.mesh.setRenderY(overlayManager.getRenderY(e.overlay));
         }
 
-        context.commandQueue().submitCustom(context.matrices(), slabRenderLayer, slabPass);
-        context.commandQueue().submitCustom(context.matrices(), RenderLayers.debugQuads(), borderPass);
+        // Rechtstreeks tekenen, bínnen de main pass (dit draait op BEFORE_TRANSLUCENT: na de
+        // entities, vóór het doorzichtige terrein). Niet via commandQueue().submitCustom: de
+        // command queue wordt pas geleegd in de flush aan het begin van renderHand, ná de
+        // depth-clear, waardoor de overlay over de arm/hand heen tekende (gametest stap 12).
+        // De expliciete draw per layer is nodig omdat deze layers geen vast buffer in de
+        // Immediate hebben; zonder draw zouden ze pas bij een willekeurige latere layer-wissel
+        // op het scherm komen.
+        MatrixStack.Entry identity = identityMatrices.peek();
+        VertexConsumerProvider.Immediate consumers = (VertexConsumerProvider.Immediate) context.consumers();
+        drawSlabs(identity, consumers.getBuffer(slabRenderLayer));
+        consumers.draw(slabRenderLayer);
+        RenderLayer borderLayer = RenderLayers.debugQuads();
+        drawBorders(identity, consumers.getBuffer(borderLayer));
+        consumers.draw(borderLayer);
     }
 
-    /** Called every client tick: budgeted occupancy rescans. */
+    /** Called every client tick: budgeted occupancy rescans, nearest to the player first. */
     public void tick(MinecraftClient client) {
         if (client.world == null || cache.isEmpty()) return;
-        occupancy.tick(cache.entries(), probe);
+        double px = client.player != null ? client.player.getX() : camX;
+        double pz = client.player != null ? client.player.getZ() : camZ;
+        occupancy.tick(cache.entries(), probe, px, pz);
     }
 
     /** Vertices emitted in the last slab pass (diagnostics/gametests). */
@@ -122,6 +136,15 @@ public class OverlayRenderer {
 
     public void onChunkLoad(int chunkX, int chunkZ) {
         cache.markChunkDirty(chunkX, chunkZ);
+    }
+
+    /**
+     * A block was placed or broken at the given column (Fabric interaction events in
+     * {@link GeoOverlayMod}): rescan that chunk's occupancy next tick instead of waiting
+     * for the slow round-robin.
+     */
+    public void onBlockChanged(int x, int z) {
+        cache.markChunkDirty(x >> 4, z >> 4);
     }
 
     // -- Passes -------------------------------------------------------

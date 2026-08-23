@@ -32,6 +32,12 @@ public class OverlayConfig {
     private volatile RenderMode renderMode = RenderMode.FULLBLOCK;
     /** The one-time "druk op G" chat hint has been shown (persisted, so it really is one-time). */
     private volatile boolean gKeyHintShown = false;
+    /**
+     * Advanced G-menu: per-layer height steppers and pins, shared-level controls, location
+     * sharing and the keybinds shortcut. Off (the default) shows the simple menu: show/hide,
+     * remove, one height stepper, opacity and render mode.
+     */
+    private volatile boolean advancedMenu = false;
 
     public static OverlayConfig getInstance() {
         return INSTANCE;
@@ -88,6 +94,14 @@ public class OverlayConfig {
         this.gKeyHintShown = value;
     }
 
+    public boolean isAdvancedMenu() {
+        return advancedMenu;
+    }
+
+    public void setAdvancedMenu(boolean value) {
+        this.advancedMenu = value;
+    }
+
     private static Path configPath() {
         Path dir = configDir;
         if (dir == null) {
@@ -108,6 +122,7 @@ public class OverlayConfig {
                 sameLevel = data.sameLevel;
                 renderMode = RenderMode.fromConfig(data.renderMode);
                 gKeyHintShown = data.gKeyHintShown;
+                advancedMenu = data.advancedMenu;
                 OverlayManager.getInstance().setSameLevel(sameLevel);
             }
         } catch (IOException | RuntimeException e) {
@@ -123,6 +138,7 @@ public class OverlayConfig {
             data.sameLevel = sameLevel;
             data.renderMode = renderMode.configValue();
             data.gKeyHintShown = gKeyHintShown;
+            data.advancedMenu = advancedMenu;
             Path path = configPath();
             Files.createDirectories(path.getParent());
             Files.writeString(path, GSON.toJson(data));
@@ -137,5 +153,6 @@ public class OverlayConfig {
         boolean sameLevel = true;
         String renderMode = "fullblock";
         boolean gKeyHintShown = false;
+        boolean advancedMenu = false;
     }
 }

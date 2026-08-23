@@ -46,6 +46,25 @@ final class ScreenshotProbe {
         return total == 0 ? 0 : (double) hits / total;
     }
 
+    /**
+     * Fraction of pixels in an arbitrary region (fractional coordinates 0..1 of the full
+     * image) matching the predicate. Used for the first-person hand region (bottom right).
+     */
+    static double regionFraction(Path png, double fx0, double fy0, double fx1, double fy1, PixelPredicate predicate) {
+        BufferedImage img = read(png);
+        int w = img.getWidth(), h = img.getHeight();
+        int x0 = (int) (w * fx0), x1 = (int) (w * fx1), y0 = (int) (h * fy0), y1 = (int) (h * fy1);
+        long hits = 0, total = 0;
+        for (int y = y0; y < y1; y++) {
+            for (int x = x0; x < x1; x++) {
+                int rgb = img.getRGB(x, y);
+                if (predicate.test((rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255)) hits++;
+                total++;
+            }
+        }
+        return total == 0 ? 0 : (double) hits / total;
+    }
+
     /** Fraction of central pixels that differ noticeably between two screenshots. */
     static double changedFraction(Path a, Path b) {
         BufferedImage ia = read(a), ib = read(b);
@@ -68,6 +87,14 @@ final class ScreenshotProbe {
     /** Magenta wool texture (~190,68,179) and a white carpet tinted (255,0,255) both satisfy this. */
     static boolean isMagenta(int r, int g, int b) {
         return r > 120 && b > 120 && g < 110 && r - g > 60 && b - g > 60;
+    }
+
+    /**
+     * Like {@link #isMagenta}, but also matches the underside of the overlay: down faces get
+     * Minecraft's directional shading (×0.5), so magenta wool reads ~(95,34,90) there.
+     */
+    static boolean isDarkMagenta(int r, int g, int b) {
+        return r > 60 && b > 60 && r - g > 30 && b - g > 30;
     }
 
     @FunctionalInterface

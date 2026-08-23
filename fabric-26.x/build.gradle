@@ -62,6 +62,10 @@ fabricApi {
 // beeld. GeoOverlayMod en de test lezen allebei deze property.
 loom.runs.named("clientGameTest") {
     property "geocraft.overlay.port", "4946"
+    // De BungeeCord-channel-request bij join raakt af en toe Fabric's netwerk-synchronizer
+    // ("Detected interfacing with packets at a lower level"), wat de test willekeurig laat
+    // crashen; Fabric adviseert in die melding zelf deze property.
+    property "fabric.client.gametest.disableNetworkSynchronizer", "true"
 }
 
 processResources {

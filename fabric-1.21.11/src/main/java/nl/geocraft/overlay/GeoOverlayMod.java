@@ -9,6 +9,7 @@ import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.util.InputUtil;
+import net.minecraft.util.Identifier;
 import org.lwjgl.glfw.GLFW;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,16 +26,24 @@ public class GeoOverlayMod implements ClientModInitializer {
     /** Ticks until the one-time "druk op G" chat hint; 0 = not armed. Delayed so the chat HUD is up. */
     private int gKeyHintTicks = 0;
 
+    /**
+     * Eigen sectie "GDOK Overlay" in het toetsenscherm (label in assets/.../lang). De
+     * keybind-namen zelf blijven de oude strings, zodat bestaande rebinds in options.txt
+     * geldig blijven.
+     */
+    private static final KeyBinding.Category KEY_CATEGORY =
+            KeyBinding.Category.create(Identifier.of(MOD_ID, "gdok"));
+
     private static final KeyBinding SETTINGS_KEY = KeyBindingHelper.registerKeyBinding(
-            new KeyBinding("GDOK Settings", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_G, KeyBinding.Category.MISC)
+            new KeyBinding("GDOK Settings", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_G, KEY_CATEGORY)
     );
 
     private static final KeyBinding Y_UP_KEY = KeyBindingHelper.registerKeyBinding(
-            new KeyBinding("GDOK Overlay omhoog", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_PAGE_UP, KeyBinding.Category.MISC)
+            new KeyBinding("GDOK Overlay omhoog", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_PAGE_UP, KEY_CATEGORY)
     );
 
     private static final KeyBinding Y_DOWN_KEY = KeyBindingHelper.registerKeyBinding(
-            new KeyBinding("GDOK Overlay omlaag", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_PAGE_DOWN, KeyBinding.Category.MISC)
+            new KeyBinding("GDOK Overlay omlaag", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_PAGE_DOWN, KEY_CATEGORY)
     );
 
     @Override
@@ -67,13 +76,31 @@ public class GeoOverlayMod implements ClientModInitializer {
         bridgeServer.start();
         PlayerTracker.getInstance().setBridge(bridgeServer);
 
-        // Register world render event for drawing overlays
+        // Register world render event for drawing overlays. BEFORE_TRANSLUCENT vuurt bínnen
+        // de main pass (na de entities, vóór het doorzichtige terrein); de renderer tekent
+        // daar direct in de vertex-buffers. Zie de toelichting in OverlayRenderer.render.
         OverlayRenderer renderer = new OverlayRenderer(overlayManager);
         rendererInstance = renderer;
-        WorldRenderEvents.BEFORE_DEBUG_RENDER.register(renderer::render);
+        WorldRenderEvents.BEFORE_TRANSLUCENT.register(renderer::render);
         // Occupancy-bits van net geladen chunks opnieuw scannen (zie OccupancyUpdater).
         ClientChunkEvents.CHUNK_LOAD.register((world, chunk) ->
                 renderer.onChunkLoad(chunk.getPos().x, chunk.getPos().z));
+
+        // Zelf een blok breken of plaatsen: markeer de chunk meteen dirty, zodat de overlay
+        // binnen een tick omschakelt in plaats van te wachten op de trage round-robin-scan.
+        net.fabricmc.fabric.api.event.client.player.ClientPlayerBlockBreakEvents.AFTER.register(
+                (world, player, pos, state) -> renderer.onBlockChanged(pos.getX(), pos.getZ()));
+        net.fabricmc.fabric.api.event.player.UseBlockCallback.EVENT.register((player, world, hand, hitResult) -> {
+            if (world.isClient()) {
+                // Het geplaatste blok landt op de aangeklikte positie of de buurpositie
+                // aan de aangeklikte zijde; markeer beide (meestal dezelfde chunk).
+                var pos = hitResult.getBlockPos();
+                renderer.onBlockChanged(pos.getX(), pos.getZ());
+                var placed = pos.offset(hitResult.getSide());
+                renderer.onBlockChanged(placed.getX(), placed.getZ());
+            }
+            return net.minecraft.util.ActionResult.PASS;
+        });
 
         // BungeeCord plugin channel for sub-server detection
         BungeeCordChannel.register(serverName -> {

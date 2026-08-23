@@ -53,6 +53,7 @@ final class McVertexSink implements VertexSink {
             case FACE_SOUTH -> vc.setNormal(pose, 0f, 0f, 1f);
             case FACE_WEST -> vc.setNormal(pose, -1f, 0f, 0f);
             case FACE_EAST -> vc.setNormal(pose, 1f, 0f, 0f);
+            case FACE_DOWN -> vc.setNormal(pose, 0f, -1f, 0f);
             default -> vc.setNormal(pose, 0f, 1f, 0f);
         }
     }
