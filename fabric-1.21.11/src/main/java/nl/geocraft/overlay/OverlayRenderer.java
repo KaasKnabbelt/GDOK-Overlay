@@ -56,6 +56,8 @@ public class OverlayRenderer {
     private double maxDist;
     private int alpha;
     private long lastSlabVertices;
+    /** Klik-marker-cel (of SKIP_NONE): andere overlays op dezelfde render-Y slaan die cel over. */
+    private int markerX = BakedOverlayMesh.SKIP_NONE, markerZ, markerY;
 
     public OverlayRenderer(OverlayManager overlayManager) {
         this.overlayManager = overlayManager;
@@ -103,6 +105,21 @@ public class OverlayRenderer {
         for (int i = 0, n = entries.size(); i < n; i++) {
             MeshCache.Entry e = entries.get(i);
             e.mesh.setRenderY(overlayManager.getRenderY(e.overlay));
+        }
+
+        // Marker-prioriteit: staat de klik-marker in een andere overlay op dezelfde hoogte,
+        // dan zou hij in dat vlak wegvallen (z-fight, of in fullblock-modus er volledig in
+        // opgesloten zitten). Die overlays slaan de marker-cel daarom over in de replay.
+        markerX = BakedOverlayMesh.SKIP_NONE;
+        for (int i = 0, n = entries.size(); i < n; i++) {
+            MeshCache.Entry e = entries.get(i);
+            if (!OverlayData.CLICK_ID.equals(e.overlay.id())) continue;
+            if (!overlayManager.isHidden(e.overlay.id()) && e.mesh.blockCount() == 1) {
+                markerX = e.overlay.blocks()[0].x();
+                markerZ = e.overlay.blocks()[0].z();
+                markerY = e.mesh.renderY();
+            }
+            break;
         }
 
         // Rechtstreeks tekenen, bínnen de main pass (dit draait op BEFORE_TRANSLUCENT: na de
@@ -161,7 +178,11 @@ public class OverlayRenderer {
             } else {
                 sink.setColor(255, 255, 255, alpha);
             }
-            mesh.replaySlabs(sink, frustum, camX, camY, camZ, mesh.renderY(), maxDist);
+            boolean yield = markerX != BakedOverlayMesh.SKIP_NONE
+                    && mesh.renderY() == markerY
+                    && !OverlayData.CLICK_ID.equals(e.overlay.id());
+            mesh.replaySlabs(sink, frustum, camX, camY, camZ, mesh.renderY(), maxDist,
+                    yield ? markerX : BakedOverlayMesh.SKIP_NONE, yield ? markerZ : 0);
         }
         lastSlabVertices = sink.takeCount();
     }
@@ -173,7 +194,11 @@ public class OverlayRenderer {
             MeshCache.Entry e = entries.get(i);
             if (overlayManager.isHidden(e.overlay.id())) continue;
             sink.setColor(e.overlay.red(), e.overlay.green(), e.overlay.blue(), alpha);
-            e.mesh.replayBorders(sink, frustum, camX, camY, camZ, e.mesh.renderY(), maxDist);
+            boolean yield = markerX != BakedOverlayMesh.SKIP_NONE
+                    && e.mesh.renderY() == markerY
+                    && !OverlayData.CLICK_ID.equals(e.overlay.id());
+            e.mesh.replayBorders(sink, frustum, camX, camY, camZ, e.mesh.renderY(), maxDist,
+                    yield ? markerX : BakedOverlayMesh.SKIP_NONE, yield ? markerZ : 0);
         }
     }
 

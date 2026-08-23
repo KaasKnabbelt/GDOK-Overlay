@@ -97,6 +97,14 @@ final class ScreenshotProbe {
         return r > 60 && b > 60 && r - g > 30 && b - g > 30;
     }
 
+    /**
+     * The cyan click-marker tint from the marker step ((60,200,255) on white wool, also with
+     * the ×0.8 side-face shading). The sky matches too, so only measure below the horizon.
+     */
+    static boolean isCyan(int r, int g, int b) {
+        return b > 120 && g > 100 && b - r > 60;
+    }
+
     @FunctionalInterface
     interface PixelPredicate {
         boolean test(int r, int g, int b);

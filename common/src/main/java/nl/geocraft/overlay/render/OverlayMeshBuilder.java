@@ -33,8 +33,7 @@ public final class OverlayMeshBuilder {
     public static BakedOverlayMesh build(OverlayData overlay, RenderMode mode, float[] uv) {
         OverlayData.BlockPos[] blocks = overlay.blocks();
         float u0 = uv[0], u1 = uv[1], v0 = uv[2], v1 = uv[3];
-        RenderMode effectiveMode = overlay.tag() == null ? RenderMode.CARPET : mode;
-        float h = OverlayGeometry.heightFor(effectiveMode);
+        float h = OverlayGeometry.heightFor(mode);
 
         // 1. Sorted, de-duplicated packed positions (x-major) for neighbour lookups.
         long[] sorted = new long[blocks.length];

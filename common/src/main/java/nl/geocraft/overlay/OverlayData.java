@@ -18,6 +18,13 @@ public record OverlayData(
 ) {
 
     /**
+     * Stable id of the click marker the site sends for the clicked cell (one block, no
+     * block tag). The renderer gives this overlay priority: other overlays on the same
+     * level skip the marker's cell so it never drowns in their surface.
+     */
+    public static final String CLICK_ID = "click";
+
+    /**
      * Return a copy with a different Y level.
      */
     public OverlayData withY(int newY) {

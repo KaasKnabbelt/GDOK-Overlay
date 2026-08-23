@@ -254,6 +254,51 @@ public class OverlayRenderGameTest implements FabricClientGameTest {
             assertThat(handCarpetMagenta < 0.85, "overlay rendert over de arm heen (carpet): " + handCarpetMagenta);
             ctx.getInput().pressKey(GLFW.GLFW_KEY_F1);
 
+            // 13. Klik-marker: wint van een overlay op dezelfde hoogte (die slaat de marker-cel
+            //     over) en is in fullblock-modus zelf ook een vol blok. Recht van boven: het
+            //     midden (de marker-cel) is cyaan, de rest van het veld magenta.
+            ctx.runOnClient(mc -> {
+                OverlayManager m = OverlayManager.getInstance();
+                m.resetSession();
+                m.addOverlay(square("paint_magenta_wool", "paint", 0, 0, 16, OVERLAY_Y, "magenta_wool", 255, 0, 255));
+                m.addOverlay(new OverlayData(OverlayData.CLICK_ID, "click",
+                        new OverlayData.BlockPos[]{new OverlayData.BlockPos(8, 8)},
+                        OVERLAY_Y, 60, 200, 255, 255, "Marker", null));
+            });
+            sp.getServer().runCommand("gamemode spectator @a");
+            sp.getServer().runCommand("tp @a 8.5 -47 8.5 0 90");
+            ctx.waitTicks(20);
+            Path prio = ctx.takeScreenshot("13-marker-priority");
+            double markerCyan = ScreenshotProbe.regionFraction(prio, 0.492, 0.485, 0.508, 0.515, ScreenshotProbe::isCyan);
+            double fieldMagenta = ScreenshotProbe.centralFraction(prio, ScreenshotProbe::isMagenta);
+            LOGGER.info("[gametest] marker-prioriteit fullblock: marker-cel cyaan = {}, veld magenta = {}", markerCyan, fieldMagenta);
+            assertThat(markerCyan > 0.6, "marker valt weg in de overlay (fullblock): " + markerCyan);
+            assertThat(fieldMagenta > 0.4, "overlay rond de marker weg: " + fieldMagenta);
+            ctx.runOnClient(mc -> OverlayConfig.getInstance().setRenderMode(RenderMode.CARPET));
+            ctx.waitTicks(10);
+            Path prioCarpet = ctx.takeScreenshot("13b-marker-priority-carpet");
+            double markerCyanCarpet = ScreenshotProbe.regionFraction(prioCarpet, 0.492, 0.485, 0.508, 0.515, ScreenshotProbe::isCyan);
+            LOGGER.info("[gametest] marker-prioriteit carpet: marker-cel cyaan = {}", markerCyanCarpet);
+            assertThat(markerCyanCarpet > 0.6, "marker valt weg in de overlay (carpet, z-fight): " + markerCyanCarpet);
+            ctx.runOnClient(mc -> OverlayConfig.getInstance().setRenderMode(RenderMode.FULLBLOCK));
+
+            // 13c. Marker van opzij: in fullblock-modus heeft hij een vol zijvlak (een tapijtje
+            //      zou hier alleen een dun randje onderin geven; de gemeten regio blijft daar
+            //      bewust boven, en onder de horizon vanwege de cyaanachtige lucht).
+            ctx.runOnClient(mc -> {
+                OverlayManager m = OverlayManager.getInstance();
+                m.resetSession();
+                m.addOverlay(new OverlayData(OverlayData.CLICK_ID, "click",
+                        new OverlayData.BlockPos[]{new OverlayData.BlockPos(8, 8)},
+                        OVERLAY_Y, 60, 200, 255, 255, "Marker", null));
+            });
+            sp.getServer().runCommand("tp @a 8.5 -60 3.5 0 0");
+            ctx.waitTicks(20);
+            Path side = ctx.takeScreenshot("13c-marker-side");
+            double sideCyan = ScreenshotProbe.regionFraction(side, 0.47, 0.62, 0.53, 0.685, ScreenshotProbe::isCyan);
+            LOGGER.info("[gametest] marker-zijvlak cyaan = {}", sideCyan);
+            assertThat(sideCyan > 0.5, "marker is geen vol blok in fullblock-modus: " + sideCyan);
+
             ctx.runOnClient(mc -> OverlayManager.getInstance().resetSession());
             ctx.waitTicks(5);
         }

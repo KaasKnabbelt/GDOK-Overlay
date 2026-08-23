@@ -8,8 +8,9 @@ package nl.geocraft.overlay.render;
  *   <li>{@link #CARPET}: a thin 0.1-high slab, tinted with the overlay colour (the pre-1.1.0 look).</li>
  * </ul>
  *
- * Overlays without a block tag (the click marker) are always drawn as a tinted carpet,
- * whatever the configured mode: there is no block texture to show for them.
+ * Overlays without a block tag (the click marker) follow the configured mode like any
+ * other overlay, but are always tinted with the overlay colour: there is no block
+ * texture to show for them.
  */
 public enum RenderMode {
     FULLBLOCK("fullblock"),

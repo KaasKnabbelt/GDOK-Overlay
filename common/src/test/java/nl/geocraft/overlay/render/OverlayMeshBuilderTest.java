@@ -185,7 +185,7 @@ class OverlayMeshBuilderTest {
     }
 
     private static void assertSameGeometry(OverlayData overlay, RenderMode mode, Set<Long> occupied) {
-        float h = overlay.tag() == null ? OverlayGeometry.CARPET_HEIGHT : OverlayGeometry.heightFor(mode);
+        float h = OverlayGeometry.heightFor(mode);
         int y = overlay.y();
 
         CollectingSink expected = new CollectingSink();
@@ -272,12 +272,36 @@ class OverlayMeshBuilderTest {
     }
 
     @Test
-    void nullTagIsAlwaysCarpet() {
+    void nullTagFollowsRenderModeAndStaysTinted() {
         OverlayData overlay = new OverlayData("click", "click", new OverlayData.BlockPos[]{
                 new OverlayData.BlockPos(10, 10), new OverlayData.BlockPos(11, 10)}, 64, 255, 0, 0, 255, "", null);
         BakedOverlayMesh mesh = OverlayMeshBuilder.build(overlay, RenderMode.FULLBLOCK, UV);
         assertTrue(mesh.isTinted());
+        // The click marker uses the mode's height like any overlay (full block in fullblock mode).
         assertSameGeometry(overlay, RenderMode.FULLBLOCK, Set.of());
+        assertSameGeometry(overlay, RenderMode.CARPET, Set.of());
+    }
+
+    @Test
+    void replaySkipsThePriorityPosition() {
+        BakedOverlayMesh mesh = OverlayMeshBuilder.build(
+                overlay("stone", new OverlayData.BlockPos(5, 5), new OverlayData.BlockPos(6, 5)), RenderMode.FULLBLOCK, UV);
+        scanAll(mesh, Set.of(), 64);
+        CollectingSink all = new CollectingSink();
+        mesh.replaySlabs(all, null, CAM_X, CAM_Y, CAM_Z, 64, 1_000_000);
+        assertEquals(10, all.quads.size());
+
+        // Skip (5,5): only (6,5) remains, whose west face stays culled against the skipped neighbour.
+        CollectingSink skipped = new CollectingSink();
+        mesh.replaySlabs(skipped, null, CAM_X, CAM_Y, CAM_Z, 64, 1_000_000, 5, 5);
+        assertEquals(5, skipped.quads.size());
+        assertTrue(all.quads.containsAll(skipped.quads));
+
+        // Borders: both occupied, the skipped position emits no border either (3 exterior edges of (6,5)).
+        scanAll(mesh, Set.of(packPos(5, 5), packPos(6, 5)), 64);
+        CollectingSink borders = new CollectingSink();
+        mesh.replayBorders(borders, null, CAM_X, CAM_Y, CAM_Z, 64, 1_000_000, 5, 5);
+        assertEquals(3, borders.quads.size());
     }
 
     @Test

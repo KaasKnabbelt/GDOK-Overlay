@@ -178,7 +178,7 @@ public final class BakedOverlayMesh {
         return tag;
     }
 
-    /** Overlays without a block tag are always drawn as a tinted carpet (no texture to show). */
+    /** Overlays without a block tag (the click marker) are always drawn tinted (no texture to show). */
     public boolean isTinted() {
         return mode == RenderMode.CARPET || tag == null;
     }
@@ -230,11 +230,27 @@ public final class BakedOverlayMesh {
     // -- Replay ---------------------------------------------------
 
     /**
+     * "No skip position" sentinel for the replay methods ({@code Integer.MIN_VALUE} is never
+     * a real block coordinate: the world border sits at ±30M).
+     */
+    public static final int SKIP_NONE = Integer.MIN_VALUE;
+
+    /** See {@link #replaySlabs(VertexSink, ViewFrustum, double, double, double, int, double, int, int)}. */
+    public void replaySlabs(VertexSink sink, ViewFrustum frustum, double camX, double camY, double camZ, int renderY, double maxDist) {
+        replaySlabs(sink, frustum, camX, camY, camZ, renderY, maxDist, SKIP_NONE, 0);
+    }
+
+    /**
      * Emit the slab faces of every visible block within {@code maxDist} of the camera and,
      * when {@code frustum} is given, inside the view frustum (tested per bucket).
      * Occupied blocks are skipped (they get a border instead, see {@link #replayBorders}).
+     *
+     * <p>{@code skipX}/{@code skipZ} (or {@code skipX == SKIP_NONE} for none) name one block
+     * position that is left out entirely: the click marker renders there instead, and it
+     * must not disappear inside another overlay on the same level (marker priority).</p>
      */
-    public void replaySlabs(VertexSink sink, ViewFrustum frustum, double camX, double camY, double camZ, int renderY, double maxDist) {
+    public void replaySlabs(VertexSink sink, ViewFrustum frustum, double camX, double camY, double camZ, int renderY, double maxDist,
+                            int skipX, int skipZ) {
         double cullSq = square(maxDist + OverlayGeometry.BUCKET_CULL_MARGIN);
         float oy = (float) (renderY - camY) + OverlayGeometry.Y_OFFSET;
         double sphereY = renderY + 0.5;
@@ -242,6 +258,7 @@ public final class BakedOverlayMesh {
             double dx = b.centerX - camX, dz = b.centerZ - camZ;
             if (dx * dx + dz * dz > cullSq) continue;
             if (frustum != null && !frustum.intersectsSphere(b.centerX, sphereY, b.centerZ, ViewFrustum.BUCKET_RADIUS)) continue;
+            boolean maySkip = skipX != SKIP_NONE && (skipX >> 4) == b.chunkX && (skipZ >> 4) == b.chunkZ;
             float ox = (float) (b.originX - camX);
             float oz = (float) (b.originZ - camZ);
             float[] v = b.verts;
@@ -251,6 +268,7 @@ public final class BakedOverlayMesh {
             boolean anyOcc = b.anyOccupied;
             for (int i = 0; i < n; i++) {
                 if (anyOcc && b.isOccupied(i)) continue;
+                if (maySkip && b.blockX[i] == skipX && b.blockZ[i] == skipZ) continue;
                 int qEnd = qs[i + 1];
                 for (int q = qs[i]; q < qEnd; q++) {
                     int face = faces[q];
@@ -264,10 +282,18 @@ public final class BakedOverlayMesh {
         }
     }
 
+    /** See {@link #replayBorders(VertexSink, ViewFrustum, double, double, double, int, double, int, int)}. */
+    public void replayBorders(VertexSink sink, ViewFrustum frustum, double camX, double camY, double camZ, int renderY, double maxDist) {
+        replayBorders(sink, frustum, camX, camY, camZ, renderY, maxDist, SKIP_NONE, 0);
+    }
+
     /**
      * Emit the flat border quads (at y+1) for every occupied block within range.
+     * {@code skipX}/{@code skipZ} as in {@link #replaySlabs}: the click marker draws its own
+     * border on that position, so other overlays leave it out.
      */
-    public void replayBorders(VertexSink sink, ViewFrustum frustum, double camX, double camY, double camZ, int renderY, double maxDist) {
+    public void replayBorders(VertexSink sink, ViewFrustum frustum, double camX, double camY, double camZ, int renderY, double maxDist,
+                              int skipX, int skipZ) {
         double cullSq = square(maxDist + OverlayGeometry.BUCKET_CULL_MARGIN);
         float oy = (float) (renderY - camY) + OverlayGeometry.Y_OFFSET;
         double sphereY = renderY + 1.0;
@@ -276,6 +302,7 @@ public final class BakedOverlayMesh {
             double dx = b.centerX - camX, dz = b.centerZ - camZ;
             if (dx * dx + dz * dz > cullSq) continue;
             if (frustum != null && !frustum.intersectsSphere(b.centerX, sphereY, b.centerZ, ViewFrustum.BUCKET_RADIUS)) continue;
+            boolean maySkip = skipX != SKIP_NONE && (skipX >> 4) == b.chunkX && (skipZ >> 4) == b.chunkZ;
             float ox = (float) (b.originX - camX);
             float oz = (float) (b.originZ - camZ);
             float[] v = b.borderVerts;
@@ -283,6 +310,7 @@ public final class BakedOverlayMesh {
             int n = b.blockX.length;
             for (int i = 0; i < n; i++) {
                 if (!b.isOccupied(i)) continue;
+                if (maySkip && b.blockX[i] == skipX && b.blockZ[i] == skipZ) continue;
                 int qEnd = bs[i + 1];
                 for (int q = bs[i]; q < qEnd; q++) {
                     int p = q * 12;
