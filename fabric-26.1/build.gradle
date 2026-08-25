@@ -1,0 +1,98 @@
+// Module voor Minecraft 26.1.2: een tweeling van fabric-26.x (mojmap), toegevoegd op
+// 25 augustus 2026 omdat de GeoCraft-server nog niet op 26.2 draait. Verschillen met
+// fabric-26.x: gradle.properties (26.1.2, loader 0.18.4, Fabric API 0.149), fabric.mod.json
+// (minecraft >=26.1 <26.2), ModMenu 18.0.0-alpha.8, en drie API-namen in de bron
+// (setScreen i.p.v. gui.setScreen, Blocks.WHITE_WOOL i.p.v. Blocks.WOOL.white(),
+// getMainCamera() i.p.v. mainCamera()). Wijzig je iets client-side, spiegel het dan in
+// ALLE module-tweelingen. Zodra GeoCraft 26.2 ondersteunt kan deze module weg.
+plugins {
+    id 'net.fabricmc.fabric-loom' version '1.17.19'
+}
+
+version = "${rootProject.mod_version}+mc${project.minecraft_version}"
+group = rootProject.maven_group
+base.archivesName = "${rootProject.archives_base_name}"
+
+repositories {
+    maven { url 'https://maven.fabricmc.net/' }
+    maven { url 'https://maven.terraformersmc.com/releases/' }
+    mavenCentral()
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+
+    // Common module
+    implementation project(':common')
+    include project(':common')
+
+    // Java-WebSocket (bundled via common, but needs to be included in jar)
+    include 'org.java-websocket:Java-WebSocket:1.5.6'
+
+    // Mod Menu integration (optional at runtime)
+    compileOnly("com.terraformersmc:modmenu:18.0.0-alpha.8")
+}
+
+// Dev-workflow (zie README "Development"): runClient start een dev-client waarin de
+// server-gate open staat (ServerGate.devBypass via FabricLoader.isDevelopmentEnvironment()).
+// ideConfigGenerated laat Loom ook een IDE-runconfiguratie maken, zodat je onder de
+// debugger kunt draaien en gewijzigde klassen kunt herladen zonder Minecraft te herstarten.
+loom {
+    runs {
+        client {
+            configName = "Client 26.1"
+            ideConfigGenerated = true
+        }
+    }
+}
+
+// In-game verificatie (zie README "Development"): `gradlew :fabric-26.x:runClientGameTest`
+// start een echte client, maakt een vlakke wereld, injecteert overlays en controleert
+// screenshots op pixelniveau. Bron: src/gametest/java, eigen mod-id zodat de test-jar nooit
+// in de release-jar belandt.
+fabricApi {
+    configureTests {
+        createSourceSet = true
+        modId = "geocraft-overlay-gametest"
+        enableGameTests = false
+        enableClientGameTests = true
+        eula = true
+        clearRunDirectory = false
+    }
+}
+
+// De gametest-client luistert op een eigen bridge-poort. Op 4945 zou een toevallig open
+// GDOK-viewer-tab (lokale dev-site) meeverbinden en bij requestSync zijn eigen overlays
+// insturen; die zetten dan het gedeelde niveau op AHN-hoogte en de testlaag verdwijnt uit
+// beeld. GeoOverlayMod en de test lezen allebei deze property.
+loom.runs.named("clientGameTest") {
+    property "geocraft.overlay.port", "4946"
+    // De BungeeCord-channel-request bij join raakt af en toe Fabric's netwerk-synchronizer
+    // ("Detected interfacing with packets at a lower level"), wat de test willekeurig laat
+    // crashen; Fabric adviseert in die melding zelf deze property.
+    property "fabric.client.gametest.disableNetworkSynchronizer", "true"
+}
+
+processResources {
+    inputs.property "version", project.version
+    filesMatching("fabric.mod.json") {
+        expand "version": project.version
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.release = project.java_version.toInteger()
+}
+
+java {
+    sourceCompatibility = JavaVersion.toVersion(project.java_version)
+    targetCompatibility = JavaVersion.toVersion(project.java_version)
+}
+
+jar {
+    from("${rootDir}/LICENSE") {
+        rename { "${it}_${rootProject.archives_base_name}" }
+    }
+}

@@ -8,14 +8,14 @@ De mod verbindt met de webviewer via een lokale WebSocket bridge, waardoor wijzi
 
 | | Versie |
 |---|---|
-| Minecraft | 1.21.11 of 26.2 |
-| Fabric Loader | >= 0.18.4 (1.21.11) / >= 0.19.3 (26.2) |
+| Minecraft | 1.21.11, 26.1.2 of 26.2 |
+| Fabric Loader | >= 0.18.4 (1.21.11 en 26.1.2) / >= 0.19.3 (26.2) |
 | Fabric API | Vereist |
-| Java | >= 21 (1.21.11) / >= 25 (26.2) |
+| Java | >= 21 (1.21.11) / >= 25 (26.1.2 en 26.2) |
 
 ## Installatie
 
-1. Installeer [Fabric Loader](https://fabricmc.net/use/) voor Minecraft 1.21.11 of 26.2.
+1. Installeer [Fabric Loader](https://fabricmc.net/use/) voor Minecraft 1.21.11, 26.1.2 of 26.2.
 2. Download [Fabric API](https://modrinth.com/mod/fabric-api) en plaats deze in je `mods/` map.
 3. Download de juiste GDOK Overlay jar voor jouw Minecraft-versie vanaf [gdok.nl](https://gdok.nl/viewer) en zet hem in je `mods/` map.
 
@@ -46,14 +46,15 @@ Site en mod zijn **één systeem**: de viewer bepaalt wélke blokken er zijn, de
 
 ## Vanuit broncode compileren
 
-Om tegelijkertijd de jars voor beide ondersteunde versies te compileren, en een overkoepelende `mod-info.json` te genereren, gebruik je het volgende commando:
+Om tegelijkertijd de jars voor alle ondersteunde versies te compileren, en een overkoepelende `mod-info.json` te genereren, gebruik je het volgende commando:
 
 ```bash
 ./gradlew build generateModInfo
 ```
 
-De resulterende jars zijn vervolgens voor beide versies terug te vinden in:
+De resulterende jars zijn vervolgens per versie terug te vinden in:
 - `fabric-1.21.11/build/libs/`
+- `fabric-26.1/build/libs/`
 - `fabric-26.x/build/libs/`
 
 En de overkoepelende mod info vind je in `build/mod-info.json`. Die wordt afgeleid uit de modules zelf: elke module met een `minecraft_version` en `java_version` in zijn `gradle.properties` levert een jar en een Java-eis. Een extra Minecraft-versie is dus een nieuwe module, zonder de root-`build.gradle` aan te raken.
@@ -79,6 +80,7 @@ Elke module heeft een Loom-runconfiguratie die Minecraft met de mod start vanuit
 
 ```bash
 ./gradlew :fabric-1.21.11:runClient
+./gradlew :fabric-26.1:runClient
 ./gradlew :fabric-26.x:runClient
 ```
 
@@ -100,7 +102,7 @@ Een volledige herstart is alleen nodig bij event-registraties, entrypoints, `fab
 ### Tests
 
 - **Unittests** (`./gradlew :common:test`): de geometrie-kern in `common/` (mesh-builder, face-culling, bucketing, cache, occupancy-scanner, frustum) wordt vergeleken met een letterlijke port van de oude per-frame-renderer, zodat de weergave quad-voor-quad gelijk blijft.
-- **Client-gametests** (`./gradlew :fabric-26.x:runClientGameTest` of `:fabric-1.21.11:runClientGameTest`): start een echte client met de mod, maakt een vlakke wereld, stuurt een overlay via de echte WebSocket-bridge en controleert screenshots op pixelniveau: volledige blokken, dun tapijt, verbergen, een echt blok op de overlaypositie (slab weg, kader erbij), blok weer weg, hoogte-wissel, 100.000 blokken versus de framerate, frustum-culling en een resource-reload. Tot slot opent de test het beheer-menu (G) met een paar lagen in verschillende staat en maakt daar screenshots van, in beide niveau-standen; die worden niet gemeten maar zijn bedoeld om de layout per MC-versie met eigen ogen te controleren. Bron in `fabric-*/src/gametest/`, screenshots in `fabric-*/build/run/clientGameTest/screenshots/`. Duurt ~45 s per versie en heeft een scherm nodig (de client opent een venster). De testclient luistert op bridge-poort **4946** (system property `geocraft.overlay.port`, gezet in `build.gradle`): op 4945 zou een open GDOK-viewer-tab meeverbinden, zijn eigen overlays insturen en daarmee het gedeelde niveau verleggen, waardoor de testlaag uit beeld verdwijnt.
+- **Client-gametests** (`./gradlew :fabric-26.x:runClientGameTest`, `:fabric-26.1:runClientGameTest` of `:fabric-1.21.11:runClientGameTest`): start een echte client met de mod, maakt een vlakke wereld, stuurt een overlay via de echte WebSocket-bridge en controleert screenshots op pixelniveau: volledige blokken, dun tapijt, verbergen, een echt blok op de overlaypositie (slab weg, kader erbij), blok weer weg, hoogte-wissel, 100.000 blokken versus de framerate, frustum-culling en een resource-reload. Tot slot opent de test het beheer-menu (G) met een paar lagen in verschillende staat en maakt daar screenshots van, in beide niveau-standen; die worden niet gemeten maar zijn bedoeld om de layout per MC-versie met eigen ogen te controleren. Bron in `fabric-*/src/gametest/`, screenshots in `fabric-*/build/run/clientGameTest/screenshots/`. Duurt ~45 s per versie en heeft een scherm nodig (de client opent een venster). De testclient luistert op bridge-poort **4946** (system property `geocraft.overlay.port`, gezet in `build.gradle`): op 4945 zou een open GDOK-viewer-tab meeverbinden, zijn eigen overlays insturen en daarmee het gedeelde niveau verleggen, waardoor de testlaag uit beeld verdwijnt.
 
 ### Site-kant
 
