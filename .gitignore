@@ -8,3 +8,6 @@ run/
 net/
 .DS_Store
 Thumbs.db
+
+# Interne werkdocumenten horen niet in deze openbare repo
+PLAN-*.md
