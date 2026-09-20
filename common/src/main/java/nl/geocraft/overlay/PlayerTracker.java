@@ -6,7 +6,8 @@ import java.util.UUID;
 
 /**
  * Throttled broadcaster of the local player's position to the GDOK viewer.
- * Sends at most 5 Hz, and only when the player has meaningfully moved.
+ * Sends at most 10 Hz, and only when the player has meaningfully moved --
+ * except right after a viewer connects, see {@link #forceResend()}.
  */
 public class PlayerTracker {
 
@@ -75,6 +76,16 @@ public class PlayerTracker {
         msg.addProperty("dimension", dimension);
         bridge.broadcastMessage(msg);
         sentSinceClear = true;
+    }
+
+    /**
+     * Forceer de eerstvolgende tick om de positie te versturen, ook als de speler niet
+     * bewoog. Nodig wanneer er een nieuwe GDOK-viewer verbindt: de delta-check hieronder
+     * zwijgt zolang de speler stilstaat, waardoor een net geopende viewer pas een
+     * playerhead zag zodra de speler een stap zette.
+     */
+    public void forceResend() {
+        resetDeltaState();
     }
 
     /** Call when the player disconnects or leaves a world. */

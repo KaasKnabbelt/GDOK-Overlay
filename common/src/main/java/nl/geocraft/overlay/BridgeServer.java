@@ -76,6 +76,9 @@ public class BridgeServer extends WebSocketServer {
         conn.send(hello.toString());
         // Send current gate status so the browser knows immediately
         conn.send(buildGateMessage(ServerGate.getInstance().isAllowed()).toString());
+        // De speler staat vaak stil als een viewer opent, en PlayerTracker stuurt alleen
+        // bij beweging. Zonder deze zet verscheen de playerhead pas na de eerste stap.
+        PlayerTracker.getInstance().forceResend();
     }
 
     @Override
