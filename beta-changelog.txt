@@ -1,5 +1,6 @@
 # Changelog van de huidige beta, één punt per regel (regels met # tellen niet mee).
 # publishBeta zet dit in beta-info.json; /beta toont het aan de testers.
+Beta 2: Bomen planten werkt nu ook voor de standaardset (het paste-commando kreeg daar geen -s mee).
 Bomenplannen uit de GDOK viewer als markers in Minecraft: spookblokken op de juiste plek en hoogte.
 Middelklik op een spookmarker zet het juiste blok in je hand (in creative).
 G-menu: nieuwe sectie Bomenplannen met teller, Verbergen, Planten en Verwijderen.

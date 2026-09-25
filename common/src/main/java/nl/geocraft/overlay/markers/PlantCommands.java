@@ -15,7 +15,8 @@ import java.util.TreeSet;
  *       further corner, then {@code //expand vert} (else markers above or below the corners'
  *       Y would be missed). The ring is first simplified to at most {@link #MAX_POINTS} corners
  *       and pushed {@link #OUTWARD} m outwards, so markers on the edge are surely inside.</li>
- *   <li>Per set {@code /geotools paste <markers> -a -r [-s <set>]}, split so that no command is
+ *   <li>Per set {@code /geotools paste <markers> -a -r -s [<set>]} (the default set gets a bare
+ *       {@code -s}: without the flag geotools does not paste at all), split so that no command is
  *       longer than {@link #MAX_CHARS} characters (the chat limit).</li>
  * </ol>
  *
@@ -60,7 +61,9 @@ public final class PlantCommands {
     }
 
     static List<String> pasteCommands(String set, String defaultSet, Iterable<String> markers) {
-        String tail = " -a -r" + (set.equals(defaultSet) ? "" : " -s " + set);
+        // -s hoort er altijd achter: zonder werkt paste niet, ook niet voor de standaardset. Die
+        // krijgt de vlag zonder setnaam (in-game vastgesteld, 25 september 2026).
+        String tail = " -a -r -s" + (set.equals(defaultSet) ? "" : " " + set);
         List<String> out = new ArrayList<>();
         StringBuilder current = new StringBuilder();
         for (String m : markers) {

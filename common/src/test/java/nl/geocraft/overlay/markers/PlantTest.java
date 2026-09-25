@@ -37,7 +37,7 @@ class PlantTest {
                 "//pos2 42,65,42",
                 "//pos2 -2,65,42",
                 "//expand vert",
-                "/geotools paste red_wool -a -r",
+                "/geotools paste red_wool -a -r -s",
                 "/geotools paste lime_wool -a -r -s ragratis"), cmds);
     }
 
