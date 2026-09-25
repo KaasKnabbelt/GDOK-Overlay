@@ -39,6 +39,31 @@ public final class Messages {
         return PREFIX + "§fDruk op §a§lG§r§f om je overlays te beheren (zichtbaarheid, hoogte, vastzetten).";
     }
 
+    // Bomenplannen (markerlagen, BOMEN.md §9)
+
+    /** Actionbar na een middelklik op een spookmarker. */
+    public static String markerPicked(String block) {
+        return PREFIX + "§fMarker in je hand: §a" + block;
+    }
+
+    /** Middelklik op een spookmarker buiten creative. */
+    public static String markerPickNeedsCreative() {
+        return PREFIX + "§7Een marker oppakken kan alleen in creative.";
+    }
+
+    /** Actionbar tijdens het planten. */
+    public static String plantingProgress(int step, int total) {
+        return PREFIX + "§fBomen planten: commando " + step + " van " + total + "§7 · G om te stoppen";
+    }
+
+    public static String plantingDone(int total) {
+        return PREFIX + "§aBomen geplant§f: " + total + " commando's uitgevoerd. Controleer het resultaat; §7//undo§f draait het terug.";
+    }
+
+    public static String plantingStopped(int step, int total) {
+        return PREFIX + "§cBomen planten gestopt§f na " + step + " van " + total + " commando's.";
+    }
+
     // Update-bericht (zie UpdateCheckCore). Tekst-delen zonder click-event; het klikbare label
     // wordt per loader gebouwd, want ClickEvent is per mapping anders.
 

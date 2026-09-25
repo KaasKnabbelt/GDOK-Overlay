@@ -137,18 +137,47 @@ public final class UpdateCheckCore {
         return null;
     }
 
-    /** Numerieke vergelijking per punt-gescheiden onderdeel; ontbrekende onderdelen tellen als 0. */
+    /** Is {@code latest} nieuwer dan {@code current}? Semver-volgorde, zie {@link #compareVersions}. */
     public static boolean isNewer(String latest, String current) {
-        String[] l = stripBuildMetadata(latest).split("\\.");
-        String[] c = stripBuildMetadata(current).split("\\.");
-        int len = Math.max(l.length, c.length);
-        for (int i = 0; i < len; i++) {
-            int lv = i < l.length ? parseIntSafe(l[i]) : 0;
-            int cv = i < c.length ? parseIntSafe(c[i]) : 0;
-            if (lv > cv) return true;
-            if (lv < cv) return false;
+        return compareVersions(latest, current) > 0;
+    }
+
+    /**
+     * Semver-volgorde zonder build-metadata: eerst de kern numeriek per punt-gescheiden onderdeel
+     * (ontbrekende onderdelen tellen als 0), dan de pre-release. Een versie met pre-release komt
+     * vóór dezelfde kern zonder ({@code 1.1.1 < 1.1.2-beta.3 < 1.1.2}); twee pre-releases gaan per
+     * punt-gescheiden onderdeel, numeriek waar beide getallen zijn, anders als tekst.
+     *
+     * <p>Zonder die pre-release-regel zag een beta zichzelf als {@code 1.1.0} (de
+     * {@code 2-beta} werd een 0) en bood hij een "update" naar de publieke 1.1.1 aan.</p>
+     */
+    public static int compareVersions(String a, String b) {
+        String va = stripBuildMetadata(a).trim();
+        String vb = stripBuildMetadata(b).trim();
+        int da = va.indexOf('-'), db = vb.indexOf('-');
+        String coreA = da < 0 ? va : va.substring(0, da), preA = da < 0 ? null : va.substring(da + 1);
+        String coreB = db < 0 ? vb : vb.substring(0, db), preB = db < 0 ? null : vb.substring(db + 1);
+
+        String[] l = coreA.split("\\.");
+        String[] c = coreB.split("\\.");
+        for (int i = 0, len = Math.max(l.length, c.length); i < len; i++) {
+            int cmp = Integer.compare(i < l.length ? parseIntSafe(l[i]) : 0, i < c.length ? parseIntSafe(c[i]) : 0);
+            if (cmp != 0) return cmp;
         }
-        return false;
+        if (preA == null || preB == null) {
+            return preA == null ? (preB == null ? 0 : 1) : -1;
+        }
+        String[] pa = preA.split("\\.");
+        String[] pb = preB.split("\\.");
+        for (int i = 0, len = Math.min(pa.length, pb.length); i < len; i++) {
+            boolean na = pa[i].matches("\\d+"), nb = pb[i].matches("\\d+");
+            int cmp;
+            if (na && nb) cmp = Integer.compare(parseIntSafe(pa[i]), parseIntSafe(pb[i]));
+            else if (na != nb) cmp = na ? -1 : 1; // numeriek komt vóór tekst
+            else cmp = pa[i].compareTo(pb[i]);
+            if (cmp != 0) return Integer.signum(cmp);
+        }
+        return Integer.compare(pa.length, pb.length);
     }
 
     private static int parseIntSafe(String s) {

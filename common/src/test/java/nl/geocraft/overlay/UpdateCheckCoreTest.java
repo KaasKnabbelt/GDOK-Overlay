@@ -86,4 +86,20 @@ class UpdateCheckCoreTest {
         assertFalse(UpdateCheckCore.isNewer("1.0.6", "1.1.0"));
         assertFalse(UpdateCheckCore.isNewer("1.0.6+mc26.2", "1.0.6+mc1.21.11"), "build-metadata telt niet mee");
     }
+
+    @Test
+    void preReleasesComeBeforeTheirRelease() {
+        // De beta mag de publieke 1.1.1 niet als update zien, en moet 1.1.2 wel zien.
+        assertFalse(UpdateCheckCore.isNewer("1.1.1", "1.1.2-beta.1+mc26.2"));
+        assertTrue(UpdateCheckCore.isNewer("1.1.2", "1.1.2-beta.3+mc26.2"));
+        assertTrue(UpdateCheckCore.isNewer("1.1.2-beta.1", "1.1.1"));
+        assertTrue(UpdateCheckCore.isNewer("1.1.2-beta.10", "1.1.2-beta.9"), "numeriek, niet als tekst");
+        assertTrue(UpdateCheckCore.isNewer("1.1.2-beta.1.1", "1.1.2-beta.1"));
+        assertTrue(UpdateCheckCore.isNewer("1.1.2-rc.1", "1.1.2-beta.4"));
+        assertTrue(UpdateCheckCore.isNewer("1.1.2-beta", "1.1.2-1"), "tekst komt na een getal");
+        assertEquals(0, UpdateCheckCore.compareVersions("1.1.2-beta.1+mc26.2", "1.1.2-beta.1+mc1.21.11"));
+
+        String publiek = "{ \"version\": \"1.1.1\", \"files\": [] }";
+        assertNull(UpdateCheckCore.evaluate(publiek, "1.1.2-beta.1+mc26.2"), "een beta krijgt geen melding over 1.1.1");
+    }
 }

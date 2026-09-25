@@ -1,5 +1,8 @@
 package nl.geocraft.overlay;
 
+import nl.geocraft.overlay.markers.MarkerLayer;
+import nl.geocraft.overlay.markers.MarkerManager;
+import nl.geocraft.overlay.markers.PlantRunner;
 import nl.geocraft.overlay.render.RenderMode;
 
 import java.util.ArrayList;
@@ -206,6 +209,68 @@ public final class OverlayMenuState {
         manager.clearCategory("all");
         BridgeServer bridge = BridgeServer.getInstance();
         if (bridge != null) for (String id : dropped) bridge.broadcastRemoved(id);
+    }
+
+    // -- Tree plans (marker layers, BOMEN.md §9.7) ----------------------
+
+    /** Snapshot of one tree plan row; the counts are read live while drawing (see {@link #counts}). */
+    public record PlanRow(String id, String name, boolean hidden) {}
+
+    /** Layers come or go, or one is hidden: the screen rebuilds. Counts change without a rebuild. */
+    public long planRevision() {
+        return MarkerManager.getInstance().revision();
+    }
+
+    public List<PlanRow> planRows() {
+        List<PlanRow> rows = new ArrayList<>();
+        for (MarkerLayer l : MarkerManager.getInstance().layers()) {
+            rows.add(new PlanRow(l.id(), l.plan.label(), l.isHidden()));
+        }
+        return rows;
+    }
+
+    /** Current counts of a plan, or {@code null} when it is gone. */
+    public MarkerLayer.Counts counts(String id) {
+        MarkerLayer l = MarkerManager.getInstance().get(id);
+        return l == null ? null : l.counts();
+    }
+
+    /** "312 / 850 geplaatst · 4 geblokkeerd · 12 geplant" */
+    public static String countsLine(MarkerLayer.Counts c) {
+        StringBuilder s = new StringBuilder(nl(c.placed()) + " / " + nl(c.total()) + " geplaatst");
+        if (c.blocked() > 0) s.append(" · ").append(nl(c.blocked())).append(" geblokkeerd");
+        if (c.existing() > 0) s.append(" · ").append(nl(c.existing())).append(" al een boom");
+        if (c.planted() > 0) s.append(" · ").append(nl(c.planted())).append(" geplant");
+        return s.toString();
+    }
+
+    public void setPlanHidden(String id, boolean hidden) {
+        MarkerManager.getInstance().setHidden(id, hidden);
+    }
+
+    /** The row's cross: gone in Minecraft, and the site marks the plan as no longer sent. */
+    public void removePlan(String id) {
+        if (id.equals(PlantRunner.getInstance().layerId())) PlantRunner.getInstance().stop();
+        MarkerManager.getInstance().removeByPlayer(id);
+    }
+
+    /** Is this plan being planted right now? */
+    public boolean isPlanting(String id) {
+        PlantRunner r = PlantRunner.getInstance();
+        return r.isRunning() && id.equals(r.layerId());
+    }
+
+    public String plantingLabel() {
+        PlantRunner r = PlantRunner.getInstance();
+        return "Stop (" + r.step() + "/" + r.total() + ")";
+    }
+
+    public void stopPlanting() {
+        PlantRunner.getInstance().stop();
+    }
+
+    private static String nl(int n) {
+        return String.format(java.util.Locale.ROOT, "%,d", n).replace(',', '.');
     }
 
     /** Persist the config when the screen closes. */

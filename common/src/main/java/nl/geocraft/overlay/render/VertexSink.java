@@ -29,4 +29,11 @@ public interface VertexSink {
 
     /** Untextured, flat-coloured vertex (the border quads on the debug layer). */
     void flatVertex(float x, float y, float z);
+
+    /**
+     * Colour (and alpha) for the following vertices. The overlay replay sets it per overlay from
+     * the module; the marker renderer in {@code common/} sets it per status through this.
+     */
+    default void setColor(int r, int g, int b, int a) {
+    }
 }

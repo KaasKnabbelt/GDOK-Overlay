@@ -3,9 +3,14 @@ package nl.geocraft.overlay;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import nl.geocraft.overlay.markers.MarkerLayer;
+import nl.geocraft.overlay.markers.MarkerManager;
+import nl.geocraft.overlay.markers.MarkerPlanParser;
+import nl.geocraft.overlay.markers.PlantRunner;
 import org.java_websocket.WebSocket;
 import org.java_websocket.drafts.Draft;
 import org.java_websocket.exceptions.InvalidDataException;
+import org.java_websocket.framing.CloseFrame;
 import org.java_websocket.handshake.ClientHandshake;
 import org.java_websocket.handshake.ServerHandshakeBuilder;
 import org.java_websocket.server.WebSocketServer;
@@ -13,6 +18,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
+import java.util.List;
+import java.util.Locale;
+import java.util.regex.Pattern;
 
 /**
  * WebSocket server that receives overlay commands from the GDOK web application.
@@ -26,16 +34,56 @@ import java.net.InetSocketAddress;
  * {@code overlay/removed} (the player removed it in-game; the site drops it too), {@code ping},
  * {@code player/update|remove}. Protocol 2 (mod 1.1.0) added hello, setHidden, state and
  * removed; a site that never sees {@code hello} falls back to the 1.0.x behaviour.</p>
+ *
+ * <p>Protocol 3 (1.1.2, tree plans, BOMEN.md §9.1) adds {@code features} to the hello and the
+ * marker layers. Site → mod: {@code markers/set} (see {@link MarkerPlanParser}),
+ * {@code markers/remove {id}}, {@code markers/plant {id}} (opens the planting screen in-game).
+ * Mod → site: {@code markers/progress {id, total, placed, planted, blocked, existing, empty}},
+ * {@code markers/removed {id}}, {@code markers/planting {id, step, total, state}}.</p>
+ *
+ * <h2>Security</h2>
+ * <p>Any web page can try to open {@code ws://127.0.0.1:4945}. The handshake therefore only
+ * accepts the GDOK origins ({@link #isAllowedOrigin}), and {@code command/run} only runs
+ * {@code tppos} ({@link #isAllowedCommand}), the one command the site sends. Planting does not
+ * use {@code command/run}: the mod builds those commands itself, after the player confirmed.</p>
  */
 public class BridgeServer extends WebSocketServer {
 
     /** Bumped when the site needs to know about new message types; announced in {@code hello}. */
-    public static final int PROTOCOL = 2;
+    public static final int PROTOCOL = 3;
+    /** What this mod can do beyond the overlays; the site shows its buttons only for these. */
+    public static final List<String> FEATURES = List.of("markers", "plant");
+
+    private static final Pattern ALLOWED_ORIGIN = Pattern.compile(
+            "https://(www\\.)?gdok\\.nl|http://(localhost|127\\.0\\.0\\.1|\\[::1])(:\\d{1,5})?");
+    /** {@code tppos x, z} or {@code tppos x, y, z} as coordinates.js sends it. */
+    private static final Pattern ALLOWED_COMMAND = Pattern.compile(
+            "tppos(\\s*,?\\s*-?\\d{1,8}(\\.\\d{1,3})?){2,3}");
 
     private static final Logger LOGGER = LoggerFactory.getLogger("geocraft-overlay");
     private final OverlayManager overlayManager;
     private static java.util.function.Consumer<String> commandRunner;
+    private static java.util.function.Consumer<String> plantRequestHandler;
     private static BridgeServer instance;
+
+    /**
+     * Only these pages may connect: gdok.nl, and localhost/127.0.0.1 for development. A client
+     * without an Origin header is not a web page (the gametests, a local tool) and may too.
+     */
+    public static boolean isAllowedOrigin(String origin) {
+        if (origin == null || origin.isEmpty()) return true;
+        return ALLOWED_ORIGIN.matcher(origin.trim().toLowerCase(Locale.ROOT)).matches();
+    }
+
+    /** The whitelist of {@code command/run} (without leading slash): only {@code tppos}. */
+    public static boolean isAllowedCommand(String command) {
+        return command != null && command.length() <= 64 && ALLOWED_COMMAND.matcher(command.trim()).matches();
+    }
+
+    /** The module opens the planting screen for a layer id (on its client thread). */
+    public static void setPlantRequestHandler(java.util.function.Consumer<String> handler) {
+        plantRequestHandler = handler;
+    }
 
     public static BridgeServer getInstance() {
         return instance;
@@ -56,10 +104,27 @@ public class BridgeServer extends WebSocketServer {
         setReuseAddr(true);
         setDaemon(true);
         instance = this;
+        MarkerManager.getInstance().setReporter(new MarkerManager.Reporter() {
+            @Override
+            public void progress(MarkerLayer layer) {
+                broadcastMarkerProgress(layer);
+            }
+
+            @Override
+            public void removed(String id) {
+                broadcastMarkersRemoved(id);
+            }
+        });
+        PlantRunner.getInstance().addListener(this::broadcastPlanting);
     }
 
     @Override
     public ServerHandshakeBuilder onWebsocketHandshakeReceivedAsServer(WebSocket conn, Draft draft, ClientHandshake request) throws InvalidDataException {
+        String origin = request.getFieldValue("Origin");
+        if (!isAllowedOrigin(origin)) {
+            LOGGER.warn("[GeoCraft Overlay] Verbinding geweigerd van origin '{}'", origin);
+            throw new InvalidDataException(CloseFrame.POLICY_VALIDATION, "Origin niet toegestaan");
+        }
         ServerHandshakeBuilder builder = super.onWebsocketHandshakeReceivedAsServer(conn, draft, request);
         builder.put("Access-Control-Allow-Private-Network", "true");
         return builder;
@@ -73,6 +138,9 @@ public class BridgeServer extends WebSocketServer {
         JsonObject hello = new JsonObject();
         hello.addProperty("type", "hello");
         hello.addProperty("protocol", PROTOCOL);
+        JsonArray features = new JsonArray();
+        FEATURES.forEach(features::add);
+        hello.add("features", features);
         conn.send(hello.toString());
         // Send current gate status so the browser knows immediately
         conn.send(buildGateMessage(ServerGate.getInstance().isAllowed()).toString());
@@ -146,6 +214,12 @@ public class BridgeServer extends WebSocketServer {
             } else if ("command".equals(type)) {
                 if ("run".equals(action)) {
                     handleCommand(msg);
+                }
+            } else if ("markers".equals(type)) {
+                switch (action) {
+                    case "set" -> handleMarkersSet(msg);
+                    case "remove" -> MarkerManager.getInstance().submitRemove(msg.get("id").getAsString());
+                    case "plant" -> handleMarkersPlant(msg);
                 }
             }
         } catch (Exception e) {
@@ -274,6 +348,59 @@ public class BridgeServer extends WebSocketServer {
         overlayManager.removeOverlay(id);
     }
 
+    // -- Marker layers (protocol 3) -----------------------------------
+
+    private void handleMarkersSet(JsonObject msg) {
+        if (!ServerGate.getInstance().isAllowed()) {
+            broadcastMessage(buildGateMessage(false));
+            return;
+        }
+        try {
+            MarkerManager.getInstance().submitSet(MarkerPlanParser.parse(msg));
+        } catch (IllegalArgumentException | IllegalStateException | IndexOutOfBoundsException e) {
+            LOGGER.warn("[GeoCraft Overlay] Bomenplan geweigerd: {}", e.getMessage());
+        }
+    }
+
+    private void handleMarkersPlant(JsonObject msg) {
+        String id = msg.get("id").getAsString();
+        if (plantRequestHandler != null && ServerGate.getInstance().isAllowed()) plantRequestHandler.accept(id);
+    }
+
+    public void broadcastMarkerProgress(MarkerLayer layer) {
+        MarkerLayer.Counts c = layer.counts();
+        JsonObject msg = new JsonObject();
+        msg.addProperty("type", "markers");
+        msg.addProperty("action", "progress");
+        msg.addProperty("id", layer.id());
+        msg.addProperty("total", c.total());
+        msg.addProperty("placed", c.placed());
+        msg.addProperty("planted", c.planted());
+        msg.addProperty("blocked", c.blocked());
+        msg.addProperty("existing", c.existing());
+        msg.addProperty("empty", c.toPlace());
+        broadcastMessage(msg);
+    }
+
+    public void broadcastMarkersRemoved(String id) {
+        JsonObject msg = new JsonObject();
+        msg.addProperty("type", "markers");
+        msg.addProperty("action", "removed");
+        msg.addProperty("id", id);
+        broadcastMessage(msg);
+    }
+
+    private void broadcastPlanting(String id, int step, int total, PlantRunner.State state) {
+        JsonObject msg = new JsonObject();
+        msg.addProperty("type", "markers");
+        msg.addProperty("action", "planting");
+        msg.addProperty("id", id);
+        msg.addProperty("step", step);
+        msg.addProperty("total", total);
+        msg.addProperty("state", state.name().toLowerCase(Locale.ROOT));
+        broadcastMessage(msg);
+    }
+
     private void handleClear(JsonObject msg) {
         String category = msg.get("category").getAsString();
         overlayManager.clearCategory(category);
@@ -308,6 +435,11 @@ public class BridgeServer extends WebSocketServer {
         // sendChatCommand verwacht het commando zonder leidende slash.
         if (command.startsWith("/")) command = command.substring(1);
         if (command.isEmpty()) return;
+        // Whitelist: een willekeurige pagina mag hier geen commando's laten uitvoeren (zie klassedoc).
+        if (!isAllowedCommand(command)) {
+            LOGGER.warn("[GeoCraft Overlay] Command geweigerd (niet op de whitelist): /{}", command);
+            return;
+        }
         commandRunner.accept(command);
         LOGGER.debug("[GeoCraft Overlay] Command uitgevoerd: /{}", command);
     }
