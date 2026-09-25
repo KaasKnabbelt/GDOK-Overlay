@@ -42,7 +42,16 @@ Site en mod zijn **één systeem**: de viewer bepaalt wélke blokken er zijn, de
 - **Verwijderen** in-game (kruisje of "Alles wissen") haalt de laag ook uit de viewer: de blokken gaan van de kaart en komen bij F5 of een rejoin niet terug. Verwijderen in de viewer haalt hem uit Minecraft.
 - **Verbergen** kan aan beide kanten (oog in het viewer-paneel, Verberg in het menu) en geldt aan beide kanten tegelijk; de laag blijft bestaan, de mod tekent hem alleen niet.
 - Pins, verborgen lagen en het gedeelde niveau zijn **per sessie**: bij het verlaten van de server is alles weg (de viewer stuurt verborgen lagen bij een rejoin wel opnieuw als verborgen mee). De eerste keer dat je op GeoCraft joint, krijg je eenmalig een chatregel die naar de G-toets wijst.
-- Protocol: de mod meldt zich bij het verbinden met `hello {protocol: 2}`; een oudere viewer negeert dat en werkt als voorheen, een nieuwe viewer tegen een oude mod (geen hello) valt terug op het 1.0.x-gedrag. Zie de klassedocumentatie van `BridgeServer` voor de berichten.
+- Protocol: de mod meldt zich bij het verbinden met `hello {protocol: 3, features: [...]}`; een oudere viewer negeert dat en werkt als voorheen, een nieuwe viewer tegen een oude mod (geen hello) valt terug op het 1.0.x-gedrag. Zie de klassedocumentatie van `BridgeServer` voor de berichten.
+- Beveiliging: alleen pagina's van `gdok.nl` (en `localhost`/`127.0.0.1` voor ontwikkeling) mogen met de bridge verbinden, en `command/run` voert alleen `tppos` uit.
+
+### Bomenplannen (markerlagen)
+
+Een bomenplan uit de viewer komt als **markerlaag** in de mod (`markers/set`): per boom een markerblok op een eigen hoogte. De mod zoekt per marker de echte plek rond de hoogte van de site (±12 blokken) en toont wat er staat: een **spookblok** met de texture van de marker waar hij nog moet komen, een groen kader als hij er staat, een oranje blok als de plek geblokkeerd is (water, een dak erboven). De teller gaat terug naar de viewer.
+
+- **Middelklik** op een spookblok zet dat markerblok in je hand (creative).
+- In het **G-menu** staat per plan de teller, Verberg/Toon, **Planten** en een kruisje.
+- **Planten** (alleen CVDK mag `/geotools paste`): eerst doorzoekt de mod de geladen chunks onder het gebied naar markerblokken die niet bij het plan horen (die zouden óók bomen worden, en zijn vaak WorldEdit-placeholders van bouwers; ze worden rood omlijnd), dan voert hij na bevestiging `//sel poly`, `//pos1`/`//pos2`, `//expand vert` en per set `/geotools paste ... -a -r` uit, één commando per ~1,1 seconde. De code staat in `common/.../markers`.
 
 ## Vanuit broncode compileren
 
@@ -71,6 +80,16 @@ En de overkoepelende mod info vind je in `build/mod-info.json`. Die wordt afgele
    `publishToSite` zet de jars en `mod-info.json` in `public/downloads/` van de gdok-repo. Stond daar een andere versie, dan gaat die automatisch vooraan in `mod-legacy.json` (de "Versiegeschiedenis" op gdok.nl/downloads); oude jars blijven staan omdat de legacy-links ernaar wijzen. Dezelfde versie nogmaals publiceren vervangt alleen de jars en `mod-info.json`.
 3. Bekijk de diff in de gdok-repo (twee nieuwe jars, `mod-info.json`, `mod-legacy.json`), commit daar en deploy beide: de site (zie de gdok-repo) en dit project (tag + push).
 4. De spelers horen het vanzelf: de mod controleert bij het joinen `gdok.nl/downloads/mod-info.json` en meldt een nieuwere versie in de chat met een directe downloadlink voor hun Minecraft-versie (of een link naar de downloadpagina als er voor die versie geen jar meer is). **Let op:** de jars t/m 1.0.6 doen die check nog tegen het oude domein en volgen de redirect niet, dus die spelers krijgen géén melding; een 1.1.0-release hoort daarom ook in de Discord aangekondigd te worden.
+
+### Beta
+
+Een pre-release (`mod_version = '1.1.2-beta.1'`) gaat nooit via `publishToSite` (die weigert hem), maar via:
+
+```bash
+./gradlew build publishBeta
+```
+
+Die zet de jars en een `beta-info.json` (versie, datum, bestanden, de regels uit `beta-changelog.txt`) in `beta/mod/` van de gdok-repo, buiten `public/`: testers halen hem na het invoeren van hun code op gdok.nl/beta. Jars van een vorige beta worden daar weggehaald. De versievergelijking van de update-check kent pre-releases (`1.1.1 < 1.1.2-beta.3 < 1.1.2`), dus een beta biedt de publieke 1.1.1 niet als update aan en ziet de publieke 1.1.2 wel.
 
 ## Development
 

@@ -10,6 +10,8 @@ import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.resources.Identifier;
 import com.mojang.blaze3d.platform.InputConstants;
+import nl.geocraft.overlay.markers.MarkerManager;
+import nl.geocraft.overlay.markers.PlantRunner;
 import org.lwjgl.glfw.GLFW;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -74,6 +76,34 @@ public class GeoOverlayMod implements ClientModInitializer {
         bridgeServer.start();
         PlayerTracker.getInstance().setBridge(bridgeServer);
 
+        // Bomenplannen (BOMEN.md §9): de plant-commando's gaan op de client-thread (PlantRunner
+        // tikt daar), de viewer kan het bevestigingsscherm openen, en de speler ziet de voortgang.
+        PlantRunner.getInstance().setSender(command -> {
+            net.minecraft.client.Minecraft client = net.minecraft.client.Minecraft.getInstance();
+            if (client.player != null && client.player.connection != null) {
+                client.player.connection.sendCommand(command);
+            }
+        });
+        PlantRunner.getInstance().addListener((layerId, step, total, state) -> {
+            net.minecraft.client.Minecraft client = net.minecraft.client.Minecraft.getInstance();
+            if (client.player == null) return;
+            switch (state) {
+                case RUNNING -> client.player.sendOverlayMessage(net.minecraft.network.chat.Component.literal(Messages.plantingProgress(step, total)));
+                case DONE -> client.player.sendSystemMessage(net.minecraft.network.chat.Component.literal(Messages.plantingDone(total)));
+                case STOPPED -> client.player.sendSystemMessage(net.minecraft.network.chat.Component.literal(Messages.plantingStopped(step, total)));
+            }
+        });
+        BridgeServer.setPlantRequestHandler(layerId -> {
+            net.minecraft.client.Minecraft client = net.minecraft.client.Minecraft.getInstance();
+            client.execute(() -> {
+                if (client.player != null && MarkerManager.getInstance().get(layerId) != null) {
+                    client.gui.setScreen(new PlantScreen(layerId, null));
+                }
+            });
+        });
+        // Middelklik op een spookmarker: vóór vanilla de pick-toets afhandelt.
+        ClientTickEvents.START_CLIENT_TICK.register(MarkerInput::onStartTick);
+
         OverlayRenderer renderer = new OverlayRenderer(overlayManager);
         rendererInstance = renderer;
         LevelRenderEvents.COLLECT_SUBMITS.register(renderer::render);
@@ -112,6 +142,8 @@ public class GeoOverlayMod implements ClientModInitializer {
             ServerGate gate = ServerGate.getInstance();
             gate.reset();
             overlayManager.resetSession();
+            MarkerManager.getInstance().resetSession();
+            PlantRunner.getInstance().stop();
 
             // Detect server address (primary gate check)
             var serverData = client.getCurrentServer();
@@ -147,12 +179,15 @@ public class GeoOverlayMod implements ClientModInitializer {
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
             ServerGate.getInstance().reset();
             overlayManager.resetSession();
+            MarkerManager.getInstance().resetSession();
+            PlantRunner.getInstance().stop();
             PlayerTracker.getInstance().clear();
             bridgeServer.broadcastGateStatus(false);
         });
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             renderer.tick(client);
+            PlantRunner.getInstance().tick();
 
             while (SETTINGS_KEY.consumeClick()) {
                 client.gui.setScreen(new OverlayManagerScreen());

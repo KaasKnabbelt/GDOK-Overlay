@@ -1,6 +1,6 @@
 // Root project properties shared by all subprojects
 ext {
-    mod_version = '1.1.1'
+    mod_version = '1.1.2-beta.1'
     maven_group = 'nl.geocraft'
     archives_base_name = 'GDOK-Overlay'
 }
@@ -77,6 +77,11 @@ tasks.register('publishToSite') {
     dependsOn 'generateModInfo'
 
     doLast {
+        // Een pre-release (1.1.2-beta.N) hoort nooit in de publieke downloads: /downloads en de
+        // in-game update-check van 1.1.1 zouden hem dan aan iedereen aanbieden. Zie publishBeta.
+        if (mod_version.contains('-')) {
+            throw new GradleException("mod_version ${mod_version} is een pre-release: gebruik publishBeta, niet publishToSite.")
+        }
         def siteDir = file(findProperty('siteDir') ?: '../gdok')
         def downloads = new File(siteDir, 'public/downloads')
         if (!downloads.isDirectory()) {
@@ -118,5 +123,60 @@ tasks.register('publishToSite') {
         copy { from modInfoFile; into downloads }
         println "gekopieerd: mod-info.json (${mod_version})"
         println "Klaar. Controleer de diff in ${siteDir.canonicalPath} en commit + deploy daar."
+    }
+}
+
+// Zet een beta (BOMEN.md §3.2) in de gdok-repo: de jars + beta-info.json naar <siteDir>/beta/mod/.
+// Die map ligt buiten public/, dus de jars zijn alleen te halen via /beta/download/{bestand}
+// (achter de beta-code), en ze komen niet in mod-info.json of mod-legacy.json. Jars van
+// eerdere beta's worden weggehaald: /beta toont alleen de huidige, de git-geschiedenis houdt de rest.
+// De changelog komt uit beta-changelog.txt (één punt per regel).
+//
+//   ./gradlew publishBeta                 (siteDir = ../gdok)
+//   ./gradlew publishBeta -PsiteDir=/pad/naar/gdok
+tasks.register('publishBeta') {
+    description = 'Kopieert de beta-jars en beta-info.json naar beta/mod/ in de gdok-repo.'
+    dependsOn mcModules().collect { ":${it.name}:build" }
+
+    doLast {
+        if (!mod_version.contains('-')) {
+            throw new GradleException("publishBeta is voor pre-releases (bijv. 1.1.2-beta.1); mod_version is ${mod_version}.")
+        }
+        def siteDir = file(findProperty('siteDir') ?: '../gdok')
+        if (!new File(siteDir, 'public/downloads').isDirectory()) {
+            throw new GradleException("Geen gdok-repo gevonden op ${siteDir.canonicalPath}. Geef de map mee met -PsiteDir=...")
+        }
+        def betaDir = new File(siteDir, 'beta/mod')
+        betaDir.mkdirs()
+
+        def mods = mcModules()
+        def jars = mods.collect { mod ->
+            def jar = mod.layout.buildDirectory.file("libs/${jarNameFor(mod)}").get().asFile
+            if (!jar.isFile()) throw new GradleException("Jar ontbreekt: ${jar} (draai eerst 'gradlew build')")
+            jar
+        }
+        def current = jars.collect { it.name } as Set
+        betaDir.listFiles().findAll { it.name.endsWith('.jar') && !current.contains(it.name) }.each {
+            it.delete()
+            println "weggehaald: ${it.name}"
+        }
+        jars.each { jar ->
+            copy { from jar; into betaDir }
+            println "gekopieerd: ${jar.name}"
+        }
+
+        def changelogFile = rootProject.file('beta-changelog.txt')
+        def changelog = changelogFile.isFile()
+                ? changelogFile.readLines('UTF-8').collect { it.trim() }.findAll { it && !it.startsWith('#') }
+                : []
+        def info = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson([
+            version  : mod_version,
+            released : new Date().format('yyyy-MM-dd'),
+            files    : mods.collect { [filename: jarNameFor(it), minecraft: it.minecraft_version] },
+            changelog: changelog,
+        ]))
+        new File(betaDir, 'beta-info.json').setText(info + '\n', 'UTF-8')
+        println "beta-info.json: ${mod_version}, ${changelog.size()} regels changelog"
+        println "Klaar. Controleer de diff in ${siteDir.canonicalPath}, commit en deploy daar (deploy.sh --code)."
     }
 }

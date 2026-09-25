@@ -85,8 +85,8 @@ public final class PlantFlow {
         long sets = java.util.Arrays.stream(layer.plan.markers()).mapToInt(MarkerPlan.Marker::set).distinct().count();
         out.add(new Line(nl(c.total()) + " markers in " + sets + (sets == 1 ? " set" : " sets") + ", "
                 + commands.size() + " commando's", WHITE));
-        out.add(new Line(nl(c.placed()) + " staan op hun plek · " + nl(c.toPlace()) + " nog niet · "
-                + nl(c.blocked()) + " geblokkeerd", c.toPlace() > 0 ? ORANGE : GREEN));
+        out.add(new Line(nl(c.placed()) + (c.placed() == 1 ? " staat op zijn plek · " : " staan op hun plek · ")
+                + nl(c.toPlace()) + " nog niet · " + nl(c.blocked()) + " geblokkeerd", c.toPlace() > 0 ? ORANGE : GREEN));
         if (c.existing() + c.planted() > 0) {
             out.add(new Line(nl(c.existing() + c.planted()) + " plekken hebben al een boom en worden overgeslagen.", GREY));
         }
@@ -95,7 +95,9 @@ public final class PlantFlow {
             return out;
         }
         if (check.strays() > 0) {
-            out.add(new Line(nl(check.strays()) + " markerblokken in het gebied horen niet bij dit plan.", RED));
+            out.add(new Line(check.strays() == 1
+                    ? "1 markerblok in het gebied hoort niet bij dit plan."
+                    : nl(check.strays()) + " markerblokken in het gebied horen niet bij dit plan.", RED));
             out.add(new Line("Ook die worden bomen! Ze zijn rood omlijnd in de wereld.", RED));
         } else {
             out.add(new Line("Geen andere markerblokken in het gebied.", GREEN));

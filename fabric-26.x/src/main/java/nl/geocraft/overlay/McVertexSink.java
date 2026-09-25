@@ -33,7 +33,8 @@ final class McVertexSink implements VertexSink {
         return c;
     }
 
-    void setColor(int r, int g, int b, int a) {
+    @Override
+    public void setColor(int r, int g, int b, int a) {
         this.r = r;
         this.g = g;
         this.b = b;

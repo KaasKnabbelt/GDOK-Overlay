@@ -127,10 +127,14 @@ public final class PlantCheck {
         if (strayPositions.size() < MAX_STRAY_POSITIONS) strayPositions.add(MarkerLayer.packPos(x, y, z));
     }
 
-    /** The marker block is at this plan marker's spot (exactly, once the scanner saw it there). */
+    /**
+     * The marker block is at this plan marker's spot: exactly there once the scanner has seen
+     * the column, anywhere in the scan range while it has not. A second marker block higher up
+     * in the same column (a builder's placeholder on a roof) is a stray.
+     */
     private boolean isMarkerHeight(int i, int y) {
-        if (layer.status(i) == MarkerStatus.PLACED) return y == layer.y(i);
-        return Math.abs(y - layer.y(i)) <= MarkerScanner.RANGE;
+        if (layer.status(i) == MarkerStatus.UNKNOWN) return Math.abs(y - layer.y(i)) <= MarkerScanner.RANGE;
+        return y == layer.y(i);
     }
 
     public boolean isDone() {

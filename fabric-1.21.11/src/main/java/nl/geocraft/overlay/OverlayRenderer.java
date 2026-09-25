@@ -15,6 +15,9 @@ import net.minecraft.registry.Registries;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
+import nl.geocraft.overlay.markers.MarkerLayer;
+import nl.geocraft.overlay.markers.MarkerManager;
+import nl.geocraft.overlay.markers.MarkerRenderCore;
 import nl.geocraft.overlay.render.BakedOverlayMesh;
 import nl.geocraft.overlay.render.MeshCache;
 import nl.geocraft.overlay.render.OccupancyProbe;
@@ -44,6 +47,8 @@ public class OverlayRenderer {
     private final BlockPos.Mutable probePos = new BlockPos.Mutable();
     private final OccupancyProbe probe = this::isOccupied;
     private final MeshCache.UvLookup uvLookup = this::lookupUv;
+    private final MarkerRenderCore.UvLookup markerUvLookup = this::lookupUv;
+    private final McMarkerProbe markerProbe = new McMarkerProbe();
     private final ViewFrustum frustum = new ViewFrustum();
 
     private long lastRevision = -1;
@@ -55,7 +60,8 @@ public class OverlayRenderer {
     private double camX, camY, camZ;
     private double maxDist;
     private int alpha;
-    private long lastSlabVertices;
+    private boolean drawOverlays, drawMarkers;
+    private long lastSlabVertices, lastMarkerVertices;
     /** Klik-marker-cel (of SKIP_NONE): andere overlays op dezelfde render-Y slaan die cel over. */
     private int markerX = BakedOverlayMesh.SKIP_NONE, markerZ, markerY;
 
@@ -70,24 +76,35 @@ public class OverlayRenderer {
         if (client.player == null || client.world == null) return;
         if (context.worldState() == null) return;
 
+        // Markerlagen van de bomenplannen (common markers-pakket) tekenen mee in dezelfde twee
+        // passes, ook als er geen overlays zijn.
+        List<MarkerLayer> markerLayers = MarkerManager.getInstance().layers();
+        boolean drawMarkers = !markerLayers.isEmpty();
+
+        boolean drawOverlays = true;
         if (overlayManager.getOverlays().isEmpty()) {
             if (!cache.isEmpty()) cache.clear();
             lastRevision = overlayManager.revision();
-            return;
+            drawOverlays = false;
         }
-        if (overlayManager.isOverBlockLimit()) return;
+        if (overlayManager.isOverBlockLimit()) drawOverlays = false;
+        if (!drawOverlays && !drawMarkers) return;
 
         RenderMode mode = OverlayConfig.getInstance().getRenderMode();
         Object canary = canarySprite(client);
         boolean uvChanged = canary != canarySprite;
+        if (uvChanged) MarkerRenderCore.invalidateUvs(markerLayers);
         long revision = overlayManager.revision();
-        if (revision != lastRevision || mode != lastMode || uvChanged) {
+        if (drawOverlays && (revision != lastRevision || mode != lastMode || uvChanged)) {
             cache.reconcile(overlayManager.getOverlays(), mode, uvLookup, uvChanged);
             lastRevision = revision;
             lastMode = mode;
-            canarySprite = canary;
         }
-        if (cache.isEmpty()) return;
+        canarySprite = canary;
+        if (cache.isEmpty()) drawOverlays = false;
+        if (!drawOverlays && !drawMarkers) return;
+        this.drawOverlays = drawOverlays;
+        this.drawMarkers = drawMarkers;
 
         Vec3d cameraPos = context.worldState().cameraRenderState.pos;
         camX = cameraPos.x;
@@ -101,7 +118,7 @@ public class OverlayRenderer {
                 client.options.getFov().getValue(), h > 0 ? (double) w / h : 1.78);
 
         // Keep every mesh's render Y current (a change clears + dirties its occupancy bits).
-        List<MeshCache.Entry> entries = cache.entries();
+        List<MeshCache.Entry> entries = drawOverlays ? cache.entries() : List.of();
         for (int i = 0, n = entries.size(); i < n; i++) {
             MeshCache.Entry e = entries.get(i);
             e.mesh.setRenderY(overlayManager.getRenderY(e.overlay));
@@ -138,12 +155,26 @@ public class OverlayRenderer {
         consumers.draw(borderLayer);
     }
 
-    /** Called every client tick: budgeted occupancy rescans, nearest to the player first. */
+    /**
+     * Called every client tick: budgeted occupancy rescans, nearest to the player first, and
+     * the marker layers (site messages applied, statuses rescanned, progress to the site).
+     */
     public void tick(MinecraftClient client) {
-        if (client.world == null || cache.isEmpty()) return;
         double px = client.player != null ? client.player.getX() : camX;
         double pz = client.player != null ? client.player.getZ() : camZ;
+        MarkerManager.getInstance().tick(client.world != null ? markerProbe : null, px, pz);
+        if (client.world == null || cache.isEmpty()) return;
         occupancy.tick(cache.entries(), probe, px, pz);
+    }
+
+    /** World access for the markers (scanner, plant check). */
+    public McMarkerProbe markerProbe() {
+        return markerProbe;
+    }
+
+    /** Vertices emitted for marker ghosts in the last slab pass (diagnostics/gametests). */
+    public long lastMarkerVertices() {
+        return lastMarkerVertices;
     }
 
     /** Vertices emitted in the last slab pass (diagnostics/gametests). */
@@ -153,6 +184,7 @@ public class OverlayRenderer {
 
     public void onChunkLoad(int chunkX, int chunkZ) {
         cache.markChunkDirty(chunkX, chunkZ);
+        MarkerManager.getInstance().markChunkDirty(chunkX, chunkZ);
     }
 
     /**
@@ -162,13 +194,14 @@ public class OverlayRenderer {
      */
     public void onBlockChanged(int x, int z) {
         cache.markChunkDirty(x >> 4, z >> 4);
+        MarkerManager.getInstance().markChunkDirty(x >> 4, z >> 4);
     }
 
     // -- Passes -------------------------------------------------------
 
     private void drawSlabs(MatrixStack.Entry matrix, VertexConsumer buffer) {
         sink.begin(buffer, matrix);
-        List<MeshCache.Entry> entries = cache.entries();
+        List<MeshCache.Entry> entries = drawOverlays ? cache.entries() : List.of();
         for (int i = 0, n = entries.size(); i < n; i++) {
             MeshCache.Entry e = entries.get(i);
             if (overlayManager.isHidden(e.overlay.id())) continue;
@@ -185,11 +218,18 @@ public class OverlayRenderer {
                     yield ? markerX : BakedOverlayMesh.SKIP_NONE, yield ? markerZ : 0);
         }
         lastSlabVertices = sink.takeCount();
+        if (drawMarkers) {
+            MarkerRenderCore.emitGhosts(MarkerManager.getInstance().layers(), sink, frustum, camX, camY, camZ, maxDist, alpha, markerUvLookup);
+        }
+        lastMarkerVertices = sink.takeCount();
     }
 
     private void drawBorders(MatrixStack.Entry matrix, VertexConsumer buffer) {
         sink.begin(buffer, matrix);
-        List<MeshCache.Entry> entries = cache.entries();
+        if (drawMarkers) {
+            MarkerRenderCore.emitFrames(MarkerManager.getInstance().layers(), sink, frustum, camX, camY, camZ, maxDist, alpha);
+        }
+        List<MeshCache.Entry> entries = drawOverlays ? cache.entries() : List.of();
         for (int i = 0, n = entries.size(); i < n; i++) {
             MeshCache.Entry e = entries.get(i);
             if (overlayManager.isHidden(e.overlay.id())) continue;

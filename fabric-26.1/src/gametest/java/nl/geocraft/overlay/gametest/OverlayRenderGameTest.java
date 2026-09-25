@@ -9,6 +9,9 @@ import nl.geocraft.overlay.OverlayConfig;
 import nl.geocraft.overlay.OverlayData;
 import nl.geocraft.overlay.OverlayManager;
 import nl.geocraft.overlay.OverlayManagerScreen;
+import nl.geocraft.overlay.PlantScreen;
+import nl.geocraft.overlay.markers.MarkerManager;
+import nl.geocraft.overlay.markers.PlantFlow;
 import nl.geocraft.overlay.render.RenderMode;
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
@@ -299,10 +302,177 @@ public class OverlayRenderGameTest implements FabricClientGameTest {
             LOGGER.info("[gametest] marker-zijvlak cyaan = {}", sideCyan);
             assertThat(sideCyan > 0.5, "marker is geen vol blok in fullblock-modus: " + sideCyan);
 
+            // 14. Bomenplan (protocol 3, BOMEN.md §9): markers via de echte bridge, de hoogte
+            //     gecorrigeerd naar het echte maaiveld, een geplaatste marker, markerblokken buiten
+            //     het plan in de controle vooraf, middelklik, en een vreemde origin die geweigerd wordt.
+            ctx.runOnClient(mc -> OverlayManager.getInstance().resetSession());
+            BridgeListener listener = BridgeListener.open(null);
+            assertThat(listener.hello().contains("\"protocol\":3") && listener.hello().contains("\"markers\""),
+                    "hello zonder protocol 3 of features: " + listener.hello());
+            // 16x16 spookmarkers, met een site-Y die twee blokken te hoog ligt.
+            listener.send(markersMessage("plan-gametest", OVERLAY_Y + 2));
+            ctx.waitFor(mc -> {
+                var l = MarkerManager.getInstance().get("plan-gametest");
+                return l != null && l.counts().empty() == 256;
+            }, 400);
+            int correctedY = ctx.computeOnClient(mc -> MarkerManager.getInstance().get("plan-gametest").y(0));
+            LOGGER.info("[gametest] marker-Y na correctie = {} (site gaf {})", correctedY, OVERLAY_Y + 2);
+            assertThat(correctedY == OVERLAY_Y, "marker niet op het maaiveld gezet: " + correctedY);
+            sp.getServer().runCommand("tp @a 8.5 -47 8.5 0 90");
+            ctx.waitTicks(20);
+            Path ghosts = ctx.takeScreenshot("14-markers");
+            double ghostMagenta = ScreenshotProbe.centralFraction(ghosts, ScreenshotProbe::isMagenta);
+            LOGGER.info("[gametest] spookmarkers magenta-fractie = {}", ghostMagenta);
+            assertThat(ghostMagenta > 0.5, "spookmarkers niet zichtbaar: " + ghostMagenta);
+
+            // Een echte marker op zijn plek, en een losse in dezelfde kolom hoger op.
+            sp.getServer().runCommand("setblock 3 " + OVERLAY_Y + " 3 minecraft:magenta_wool");
+            sp.getServer().runCommand("setblock 8 " + (OVERLAY_Y + 6) + " 8 minecraft:magenta_wool");
+            ctx.waitFor(mc -> MarkerManager.getInstance().get("plan-gametest").counts().placed() == 1, 400);
+            String progress = listener.waitFor("\"action\":\"progress\"", "\"placed\":1");
+            assertThat(progress != null, "geen voortgang met placed=1 naar de site");
+
+            PlantFlow flow = ctx.computeOnClient(mc -> new PlantFlow("plan-gametest", GeoOverlayMod.getRenderer().markerProbe()));
+            ctx.waitFor(mc -> {
+                flow.tick();
+                return !flow.isChecking();
+            }, 200);
+            String flowText = ctx.computeOnClient(mc -> flow.lines().stream().map(PlantFlow.Line::text).toList().toString());
+            LOGGER.info("[gametest] plant-controle: {}", flowText);
+            assertThat(flowText.contains("1 markerblok in het gebied hoort niet bij dit plan"),
+                    "de losse marker boven het maaiveld is niet gevonden: " + flowText);
+            ctx.runOnClient(mc -> mc.setScreen(new PlantScreen("plan-gametest", null)));
+            ctx.waitTicks(20);
+            ctx.takeScreenshot("14b-plant-screen");
+            ctx.runOnClient(mc -> mc.setScreen(new OverlayManagerScreen()));
+            ctx.waitTicks(10);
+            ctx.takeScreenshot("14c-menu-bomenplan");
+            ctx.runOnClient(mc -> mc.setScreen(null));
+
+            // Middelklik op een spookmarker: het markerblok in de hand (creative).
+            sp.getServer().runCommand("gamemode creative @a");
+            sp.getServer().runCommand("clear @a");
+            sp.getServer().runCommand("tp @a 5.5 " + OVERLAY_Y + " 1.5 0 25");
+            ctx.waitTicks(20);
+            ctx.getInput().pressKey(options -> options.keyPickItem);
+            ctx.waitTicks(10);
+            boolean picked = ctx.computeOnClient(mc -> "magenta_wool".equals(net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(mc.player.getMainHandItem().getItem()).getPath()));
+            LOGGER.info("[gametest] middelklik op spookmarker: magenta wol in de hand = {}", picked);
+            assertThat(picked, "middelklik zette de marker niet in de hand");
+            sp.getServer().runCommand("gamemode spectator @a");
+
+            // Een vreemde webpagina mag niet verbinden.
+            BridgeListener evil = BridgeListener.tryOpen("https://evil.example");
+            assertThat(evil == null, "verbinding vanaf https://evil.example is niet geweigerd");
+
+            listener.send("{\"type\":\"markers\",\"action\":\"remove\",\"id\":\"plan-gametest\"}");
+            ctx.waitFor(mc -> MarkerManager.getInstance().isEmpty(), 100);
+            listener.close();
             ctx.runOnClient(mc -> OverlayManager.getInstance().resetSession());
             ctx.waitTicks(5);
         }
     }
+
+    /** A 16x16 grid of magenta markers at (0..15, 0..15), plan area around it. */
+    static String markersMessage(String id, int siteY) {
+        StringBuilder sb = new StringBuilder("{\"type\":\"markers\",\"action\":\"set\",\"id\":\"").append(id)
+                .append("\",\"label\":\"Gametest-plan\",\"polygon\":[[-2,-2],[18,-2],[18,18],[-2,18]],")
+                .append("\"blocks\":[\"magenta_wool\"],\"sets\":[\"bomenalles\"],\"defaultSet\":\"bomenalles\",\"trunks\":[],\"markers\":[");
+        boolean first = true;
+        for (int x = 0; x < 16; x++) {
+            for (int z = 0; z < 16; z++) {
+                if (!first) sb.append(',');
+                first = false;
+                sb.append('[').append(x).append(',').append(z).append(',').append(siteY).append(",0,0]");
+            }
+        }
+        return sb.append("]}").toString();
+    }
+
+    /** A bridge connection that also records what the mod sends (hello, progress). */
+    static final class BridgeListener {
+        private final WebSocketClient client;
+        private final java.util.List<String> received = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+        private BridgeListener(String origin, CountDownLatch opened, CountDownLatch closed) {
+            java.util.Map<String, String> headers = origin == null ? java.util.Map.of() : java.util.Map.of("Origin", origin);
+            client = new WebSocketClient(URI.create("ws://127.0.0.1:" + Integer.getInteger("geocraft.overlay.port", 4945)), headers) {
+                @Override
+                public void onOpen(ServerHandshake handshake) {
+                    opened.countDown();
+                }
+
+                @Override
+                public void onMessage(String message) {
+                    received.add(message);
+                }
+
+                @Override
+                public void onClose(int code, String reason, boolean remote) {
+                    closed.countDown();
+                }
+
+                @Override
+                public void onError(Exception ex) {
+                }
+            };
+        }
+
+        static BridgeListener open(String origin) {
+            BridgeListener l = tryOpen(origin);
+            assertThat(l != null, "bridge niet bereikbaar");
+            return l;
+        }
+
+        /** null when the connection was refused. */
+        static BridgeListener tryOpen(String origin) {
+            CountDownLatch opened = new CountDownLatch(1), closed = new CountDownLatch(1);
+            BridgeListener l = new BridgeListener(origin, opened, closed);
+            try {
+                l.client.connect();
+                boolean ok = opened.await(3, TimeUnit.SECONDS);
+                if (!ok) {
+                    l.client.close();
+                    return null;
+                }
+                Thread.sleep(200); // hello + gate status
+                return l;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError(e);
+            }
+        }
+
+        String hello() {
+            return received.stream().filter(m -> m.contains("\"hello\"")).findFirst().orElse("");
+        }
+
+        void send(String json) {
+            client.send(json);
+        }
+
+        /** Waits up to 10 s for a message containing all parts. */
+        String waitFor(String... parts) {
+            long end = System.currentTimeMillis() + 10_000;
+            while (System.currentTimeMillis() < end) {
+                for (String m : received) {
+                    if (java.util.Arrays.stream(parts).allMatch(m::contains)) return m;
+                }
+                try {
+                    Thread.sleep(50);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return null;
+                }
+            }
+            return null;
+        }
+
+        void close() {
+            client.close();
+        }
+    }
+
 
     // -- helpers ----------------------------------------------------------
 
