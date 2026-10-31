@@ -15,6 +15,7 @@ import net.minecraft.registry.Registries;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
+import nl.geocraft.overlay.markers.MarkerAssist;
 import nl.geocraft.overlay.markers.MarkerLayer;
 import nl.geocraft.overlay.markers.MarkerManager;
 import nl.geocraft.overlay.markers.MarkerRenderCore;
@@ -61,7 +62,7 @@ public class OverlayRenderer {
     private double maxDist;
     private int alpha;
     private boolean drawOverlays, drawMarkers;
-    private long lastSlabVertices, lastMarkerVertices;
+    private long lastSlabVertices, lastMarkerVertices, lastSeeThroughVertices;
     /** Klik-marker-cel (of SKIP_NONE): andere overlays op dezelfde render-Y slaan die cel over. */
     private int markerX = BakedOverlayMesh.SKIP_NONE, markerZ, markerY;
 
@@ -153,6 +154,19 @@ public class OverlayRenderer {
         RenderLayer borderLayer = RenderLayers.debugQuads();
         drawBorders(identity, consumers.getBuffer(borderLayer));
         consumers.draw(borderLayer);
+        sink.takeCount(); // the border pass is not counted; the counts below are per pass
+
+        // Markers still to put down, through blocks (BOMEN.md §9.8): a yellow frame, and beacons
+        // when few are left. Vanilla's see-through layer of name tags (no depth test).
+        if (drawMarkers && OverlayConfig.getInstance().isMarkerSeeThrough()) {
+            RenderLayer seeLayer = RenderLayers.textBackgroundSeeThrough();
+            sink.begin(consumers.getBuffer(seeLayer), identity);
+            MarkerRenderCore.emitSeeThrough(markerLayers, sink, frustum, camX, camY, camZ, maxDist);
+            consumers.draw(seeLayer);
+            lastSeeThroughVertices = sink.takeCount();
+        } else {
+            lastSeeThroughVertices = 0;
+        }
     }
 
     /**
@@ -163,6 +177,7 @@ public class OverlayRenderer {
         double px = client.player != null ? client.player.getX() : camX;
         double pz = client.player != null ? client.player.getZ() : camZ;
         MarkerManager.getInstance().tick(client.world != null ? markerProbe : null, px, pz);
+        MarkerAssist.tick(MarkerManager.getInstance(), px, pz);
         if (client.world == null || cache.isEmpty()) return;
         occupancy.tick(cache.entries(), probe, px, pz);
     }
@@ -175,6 +190,11 @@ public class OverlayRenderer {
     /** Vertices emitted for marker ghosts in the last slab pass (diagnostics/gametests). */
     public long lastMarkerVertices() {
         return lastMarkerVertices;
+    }
+
+    /** Vertices of the frames and beacons through blocks in the last frame (diagnostics/gametests). */
+    public long lastSeeThroughVertices() {
+        return lastSeeThroughVertices;
     }
 
     /** Vertices emitted in the last slab pass (diagnostics/gametests). */

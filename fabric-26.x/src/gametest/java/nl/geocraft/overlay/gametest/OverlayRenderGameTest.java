@@ -4,6 +4,9 @@ import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
 import net.minecraft.client.gui.screens.worldselection.WorldCreationUiState;
+import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
+import nl.geocraft.overlay.GdokChat;
+import nl.geocraft.overlay.GdokLink;
 import nl.geocraft.overlay.GeoOverlayMod;
 import nl.geocraft.overlay.OverlayConfig;
 import nl.geocraft.overlay.OverlayData;
@@ -306,6 +309,9 @@ public class OverlayRenderGameTest implements FabricClientGameTest {
             //     gecorrigeerd naar het echte maaiveld, een geplaatste marker, vreemde markerblokken,
             //     middel- en rechtsklik, de paste-regels in de chat, en een vreemde origin die geweigerd wordt.
             ctx.runOnClient(mc -> OverlayManager.getInstance().resetSession());
+            // De kaders door blokken heen (stap 15) bedekken de randen van de spookblokken; hier
+            // gaat het om de spookblokken zelf.
+            ctx.runOnClient(mc -> OverlayConfig.getInstance().setMarkerSeeThrough(false));
             BridgeListener listener = BridgeListener.open(null);
             assertThat(listener.hello().contains("\"protocol\":3") && listener.hello().contains("\"markers\""),
                     "hello zonder protocol 3 of features: " + listener.hello());
@@ -408,6 +414,100 @@ public class OverlayRenderGameTest implements FabricClientGameTest {
             ctx.runOnClient(mc -> mc.gui.setScreen(null));
             ctx.getInput().pressKey(GLFW.GLFW_KEY_F1);
 
+            // 15. Fase 4 (BOMEN.md §9.8): nog per markerblok, de balk bovenin, kaders door een muur,
+            //     bakens bij 10 of minder over, [GDOK] achter /waarbenik en /gdok (vliegen of browser).
+            ctx.runOnClient(mc -> mc.gui.hud.getChat().clearMessages(false));
+            // De bovenste helft van het raster staat; (8, 8) is geblokkeerd door de losse wol erboven.
+            sp.getServer().runCommand("fill 0 " + OVERLAY_Y + " 0 15 " + OVERLAY_Y + " 7 minecraft:magenta_wool");
+            ctx.waitFor(mc -> MarkerManager.getInstance().get("plan-gametest").counts().toPlace() == 127, 400);
+            ctx.runOnClient(mc -> OverlayConfig.getInstance().setMarkerSeeThrough(true));
+            ctx.waitTicks(MarkerManager.REPORT_INTERVAL + 2); // de laatste voortgang gaat pas na hooguit 10 ticks weg
+            String nog = listener.waitFor("\"action\":\"progress\"", "\"nog\":[128]");
+            assertThat(nog != null, "geen nog=[128] per markerblok naar de site; laatste voortgang: " + listener.last("\"progress\""));
+
+            // De balk: kijk omhoog (lucht), dan is groen in de bovenste band alleen de balk.
+            sp.getServer().runCommand("tp @a 8.5 -59 8.5 0 -45");
+            ctx.getInput().pressKey(GLFW.GLFW_KEY_F1); // HUD aan
+            ctx.waitTicks(20);
+            ScreenshotProbe.PixelPredicate barGreen = (r, g, b) -> Math.abs(r - 85) < 14 && Math.abs(g - 193) < 14 && Math.abs(b - 85) < 14;
+            double barOn = ScreenshotProbe.regionFraction(ctx.takeScreenshot("15a-balk"), 0.2, 0.0, 0.8, 0.12, barGreen);
+            ctx.runOnClient(mc -> OverlayConfig.getInstance().setMarkerHud(false));
+            ctx.waitTicks(5);
+            double barOff = ScreenshotProbe.regionFraction(ctx.takeScreenshot("15b-balk-uit"), 0.2, 0.0, 0.8, 0.12, barGreen);
+            ctx.runOnClient(mc -> OverlayConfig.getInstance().setMarkerHud(true));
+            LOGGER.info("[gametest] balk groen aan = {}, uit = {}", barOn, barOff);
+            assertThat(barOn > 0.02, "de balk bovenin is er niet (half vol): " + barOn);
+            assertThat(barOff < 0.002, "de balk staat er nog na uitzetten: " + barOff);
+            String title = ctx.computeOnClient(mc -> {
+                var s = nl.geocraft.overlay.markers.MarkerAssist.status();
+                return s == null ? null : nl.geocraft.overlay.markers.MarkerAssist.barTitle(s);
+            });
+            assertThat("§fGametest-plan§7: §fnog 128 §7van 256".equals(title), "titel van de balk: " + title);
+            ctx.getInput().pressKey(GLFW.GLFW_KEY_F1); // HUD weer uit
+
+            // Kaders door een muur: de onderste helft (nog neer te zetten) ligt achter de muur.
+            sp.getServer().runCommand("fill -8 " + OVERLAY_Y + " -5 24 " + (OVERLAY_Y + 10) + " -5 minecraft:stone");
+            sp.getServer().runCommand("tp @a 8.5 -59 -12.5 0 10");
+            ctx.waitTicks(30);
+            ScreenshotProbe.PixelPredicate yellow = (r, g, b) -> r > 190 && g > 150 && b < 120 && r - b > 100;
+            double frameOn = ScreenshotProbe.centralFraction(ctx.takeScreenshot("15c-kaders-door-muur"), yellow);
+            long seeOn = ctx.computeOnClient(mc -> GeoOverlayMod.getRenderer().lastSeeThroughVertices());
+            ctx.runOnClient(mc -> OverlayConfig.getInstance().setMarkerSeeThrough(false));
+            ctx.waitTicks(5);
+            double frameOff = ScreenshotProbe.centralFraction(ctx.takeScreenshot("15d-kaders-uit"), yellow);
+            long seeOff = ctx.computeOnClient(mc -> GeoOverlayMod.getRenderer().lastSeeThroughVertices());
+            ctx.runOnClient(mc -> OverlayConfig.getInstance().setMarkerSeeThrough(true));
+            LOGGER.info("[gametest] kaders door de muur: geel aan = {} ({} vertices), uit = {} ({})", frameOn, seeOn, frameOff, seeOff);
+            assertThat(frameOn > 0.005 && seeOn > 0, "geen kaders door de muur: " + frameOn + " / " + seeOn);
+            assertThat(frameOff < 0.001 && seeOff == 0, "kaders na uitzetten: " + frameOff + " / " + seeOff);
+
+            // Bakens zodra er 10 of minder over zijn: alles staat behalve x 0..9 van de laatste rij.
+            sp.getServer().runCommand("fill 0 " + OVERLAY_Y + " 8 15 " + OVERLAY_Y + " 14 minecraft:magenta_wool");
+            sp.getServer().runCommand("fill 10 " + OVERLAY_Y + " 15 15 " + OVERLAY_Y + " 15 minecraft:magenta_wool");
+            ctx.waitFor(mc -> MarkerManager.getInstance().get("plan-gametest").counts().toPlace() == 10, 400);
+            ctx.waitTicks(5);
+            long beacons = ctx.computeOnClient(mc -> GeoOverlayMod.getRenderer().lastSeeThroughVertices());
+            ctx.takeScreenshot("15e-bakens");
+            LOGGER.info("[gametest] kaders en bakens bij 10 over: {} vertices", beacons);
+            assertThat(beacons == 10 * (80 + 16), "10 kaders en 10 bakens verwacht (960 vertices): " + beacons);
+            sp.getServer().runCommand("fill -8 " + OVERLAY_Y + " -5 24 " + (OVERLAY_Y + 10) + " -5 minecraft:air");
+
+            // [GDOK] achter de Google Maps-regel van /waarbenik (zoals de server hem stuurt).
+            java.util.List<net.minecraft.network.chat.Component> game = new java.util.concurrent.CopyOnWriteArrayList<>();
+            ClientReceiveMessageEvents.GAME.register((message, overlay) -> game.add(message));
+            String mapsLine = "Klik hier voor een Google Maps link naar de coords: 51.82788, 5.85391";
+            sp.getServer().runCommand("tellraw @a {\"text\":\"" + mapsLine + "\",\"color\":\"aqua\"}");
+            ctx.waitFor(mc -> game.stream().anyMatch(t -> t.getString().contains("Google Maps")), 100);
+            net.minecraft.network.chat.Component shown = game.stream().filter(t -> t.getString().contains("Google Maps")).findFirst().orElseThrow();
+            java.util.concurrent.atomic.AtomicReference<String> buttonUrl = new java.util.concurrent.atomic.AtomicReference<>();
+            shown.visit((style, s) -> {
+                if (s.contains("[GDOK]") && style.getClickEvent() instanceof net.minecraft.network.chat.ClickEvent.OpenUrl open) {
+                    buttonUrl.set(open.uri().toString());
+                }
+                return java.util.Optional.empty();
+            }, net.minecraft.network.chat.Style.EMPTY);
+            int[] spot = GdokLink.blockFromWaarbenik(mapsLine);
+            String expectedUrl = GdokLink.viewerUrl(spot[0], spot[1]);
+            LOGGER.info("[gametest] /waarbenik-regel: '{}' met knop naar {}", shown.getString(), buttonUrl.get());
+            assertThat(shown.getString().endsWith("[GDOK]"), "geen [GDOK] achter de Google Maps-regel: " + shown.getString());
+            assertThat(expectedUrl.equals(buttonUrl.get()), "knop wijst naar " + buttonUrl.get() + ", verwacht " + expectedUrl);
+
+            // /gdok zonder viewer die kan vliegen: de browser opent (hier opgevangen) op het eigen blok.
+            java.util.concurrent.atomic.AtomicReference<String> opened = new java.util.concurrent.atomic.AtomicReference<>();
+            GdokChat.opener = opened::set;
+            ctx.runOnClient(mc -> mc.player.connection.sendCommand("gdok"));
+            ctx.waitTicks(5);
+            assertThat(GdokLink.viewerUrl(8, -13).equals(opened.get()), "/gdok opende " + opened.get());
+            // Met een viewer die goto kent (site/hello): die vliegt, en er opent niets.
+            opened.set(null);
+            listener.send("{\"type\":\"site\",\"action\":\"hello\",\"features\":[\"goto\"]}");
+            ctx.waitTicks(10);
+            ctx.runOnClient(mc -> mc.player.connection.sendCommand("gdok"));
+            String go = listener.waitFor("\"type\":\"view\"", "\"action\":\"goto\"", "\"x\":8", "\"z\":-13");
+            LOGGER.info("[gametest] /gdok met viewer: {} (browser: {})", go, opened.get());
+            assertThat(go != null, "geen view/goto naar de viewer");
+            assertThat(opened.get() == null, "browser geopend terwijl de viewer kon vliegen: " + opened.get());
+
             // Een vreemde webpagina mag niet verbinden.
             BridgeListener evil = BridgeListener.tryOpen("https://evil.example");
             assertThat(evil == null, "verbinding vanaf https://evil.example is niet geweigerd");
@@ -493,6 +593,14 @@ public class OverlayRenderGameTest implements FabricClientGameTest {
                 Thread.currentThread().interrupt();
                 throw new AssertionError(e);
             }
+        }
+
+        /** The newest message containing {@code part}, or null. */
+        String last(String part) {
+            for (int i = received.size() - 1; i >= 0; i--) {
+                if (received.get(i).contains(part)) return received.get(i);
+            }
+            return null;
         }
 
         String hello() {

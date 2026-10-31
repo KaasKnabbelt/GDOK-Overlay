@@ -67,6 +67,8 @@ loom.runs.named("clientGameTest") {
     // ("Detected interfacing with packets at a lower level"), wat de test willekeurig laat
     // crashen; Fabric adviseert in die melding zelf deze property.
     property "fabric.client.gametest.disableNetworkSynchronizer", "true"
+    // -Pshowcase: alleen de screenshots van ShowcaseGameTest (varianten om uit te kiezen).
+    if (project.hasProperty("showcase")) property "geocraft.showcase", "true"
 }
 
 processResources {

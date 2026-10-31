@@ -168,6 +168,7 @@ public class OverlayManagerScreen extends Screen {
             if (!plans.isEmpty()) {
                 addEntry(new TextEntry(Text.literal("Bomenplannen").withColor(WHITE)));
                 for (OverlayMenuState.PlanRow plan : plans) addEntry(new PlanEntry(plan));
+                addEntry(new PlanHelpEntry());
             }
             addEntry(new TextEntry(Text.literal("Instellingen").withColor(WHITE)));
             if (advanced) {
@@ -419,6 +420,32 @@ public class OverlayManagerScreen extends Screen {
         @Override
         public List<? extends Element> children() {
             return List.of(command, visibility, remove);
+        }
+    }
+
+    /** Under the plans: the frames through blocks and the bar at the top on or off (BOMEN.md §9.8). */
+    private class PlanHelpEntry extends Entry {
+        private final CyclingButtonWidget<Boolean> seeThrough = CyclingButtonWidget.onOffBuilder(state.markerSeeThrough())
+                .tooltip(v -> Tooltip.of(Text.literal(
+                        "Markers die nog neer moeten krijgen een geel kader, ook achter muren (tot 48 blokken). Met 10 of minder over ook een lichtzuil.")))
+                .build(0, 0, 150, 20, Text.literal("Door blokken"), (b, v) -> state.setMarkerSeeThrough(v));
+        private final CyclingButtonWidget<Boolean> hud = CyclingButtonWidget.onOffBuilder(state.markerHud())
+                .tooltip(v -> Tooltip.of(Text.literal(
+                        "Bovenin hoeveel er nog te doen is in het plan waar je staat.")))
+                .build(0, 0, 150, 20, Text.literal("Teller bovenin"), (b, v) -> state.setMarkerHud(v));
+
+        @Override
+        public void render(DrawContext context, int mouseX, int mouseY, boolean hovered, float delta) {
+            int y = getContentY() + (getContentHeight() - 20) / 2;
+            seeThrough.setPosition(getContentMiddleX() - 155, y);
+            seeThrough.render(context, mouseX, mouseY, delta);
+            hud.setPosition(getContentMiddleX() + 5, y);
+            hud.render(context, mouseX, mouseY, delta);
+        }
+
+        @Override
+        public List<? extends Element> children() {
+            return List.of(seeThrough, hud);
         }
     }
 

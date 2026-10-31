@@ -5,7 +5,7 @@
     "name": "GDOK Overlay gametests",
     "environment": "client",
     "entrypoints": {
-        "fabric-client-gametest": ["nl.geocraft.overlay.gametest.OverlayRenderGameTest"]
+        "fabric-client-gametest": ["nl.geocraft.overlay.gametest.OverlayRenderGameTest", "nl.geocraft.overlay.gametest.ShowcaseGameTest"]
     },
     "depends": {
         "geocraft-overlay": "*"

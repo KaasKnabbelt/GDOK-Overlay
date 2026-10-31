@@ -113,6 +113,122 @@ public final class MarkerRenderCore {
         }
     }
 
+    // -- Through blocks (BOMEN.md §9.8) ---------------------------------------------------
+    // Drawn without a depth test (the see-through text layers of vanilla, which name tags use),
+    // and only for markers still to put down (UNKNOWN, EMPTY). Their shaders drop anything under
+    // 10% alpha, so every alpha here stays above 26. Chosen by Jens on 31 October 2026 (A2): a
+    // yellow frame; a see-through ghost (A1) and beacons on every marker were the
+    // other variants.
+
+    private static final int SEE_ALPHA_NEAR = 170, SEE_ALPHA_FAR = 70;
+    private static final int FRAME_R = 255, FRAME_G = 214, FRAME_B = 51;
+    private static final float BEACON_HALF = 0.12f, BEACON_HEIGHT = 16f;
+    /** A beacon fades in between these distances: close by you see the marker itself. */
+    private static final double BEACON_FADE_FROM = 8, BEACON_FADE_TO = 24;
+
+    /**
+     * Flat colour through blocks: a yellow frame on the faces of every spot still to fill within
+     * {@link MarkerAssist#SEE_THROUGH_RANGE}, fading out with distance; and for a plan with
+     * {@link MarkerAssist#BEACON_MAX_LEFT} or fewer left, a beacon on each of those: a thin
+     * column {@code BEACON_HEIGHT} blocks up from the top of the spot, within view distance,
+     * fading in from {@code BEACON_FADE_FROM}. Returns the vertex count.
+     */
+    public static int emitSeeThrough(List<MarkerLayer> layers, VertexSink sink, ViewFrustum frustum,
+                                     double camX, double camY, double camZ, double maxDist) {
+        int vertices = 0;
+        double frameRange = MarkerAssist.SEE_THROUGH_RANGE;
+        for (MarkerLayer l : layers) {
+            if (l.isHidden()) continue;
+            boolean beacons = MarkerAssist.beacons(l);
+            double range = beacons ? Math.max(maxDist, frameRange) : frameRange;
+            double cullSq = square(range + OverlayGeometry.BUCKET_CULL_MARGIN);
+            for (int b = 0; b < l.bucketCount(); b++) {
+                if (!bucketVisible(l, b, frustum, camX, camZ, cullSq)) continue;
+                for (int k = l.bucketStart(b); k < l.bucketEnd(b); k++) {
+                    int i = l.markerAt(k);
+                    if (!l.status(i).needsMarker()) continue;
+                    MarkerPlan.Marker m = l.plan.markers()[i];
+                    double d = distance(m, l.y(i), camX, camY, camZ);
+                    if (d > range) continue;
+                    float x = (float) (m.x() - camX), y = (float) (l.y(i) - camY), z = (float) (m.z() - camZ);
+                    if (d <= frameRange) {
+                        sink.setColor(FRAME_R, FRAME_G, FRAME_B, Math.min(230, fade(d, frameRange) + 60));
+                        frames(sink, x, y + OverlayGeometry.Y_OFFSET, z);
+                        vertices += 80;
+                    }
+                    if (beacons) {
+                        double fadeIn = Math.max(0, Math.min(1, (d - BEACON_FADE_FROM) / (BEACON_FADE_TO - BEACON_FADE_FROM)));
+                        int bottom = (int) Math.round(190 * fadeIn);
+                        if (bottom >= 40) {
+                            beacon(sink, x + 0.5f, y + 1f, z + 0.5f, bottom);
+                            vertices += 16;
+                        }
+                    }
+                }
+            }
+        }
+        return vertices;
+    }
+
+    private static int fade(double d, double range) {
+        double t = Math.max(0, Math.min(1, d / range));
+        return (int) Math.round(SEE_ALPHA_NEAR + (SEE_ALPHA_FAR - SEE_ALPHA_NEAR) * t);
+    }
+
+    private static double distance(MarkerPlan.Marker m, int y, double camX, double camY, double camZ) {
+        double dx = m.x() + 0.5 - camX, dy = y + 0.5 - camY, dz = m.z() + 0.5 - camZ;
+        return Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    /** A thin frame along the edges of the five faces of a ghost (no bottom). */
+    private static void frames(VertexSink s, float x, float y, float z) {
+        float x1 = x + 1, y1 = y + 1, z1 = z + 1, w = 0.08f;
+        // Corners per face in the order of ghost(): p0, p1, (p2), p3.
+        faceFrame(s, x, y1, z, x, y1, z1, x1, y1, z, w);       // up
+        faceFrame(s, x, y1, z, x1, y1, z, x, y, z, w);         // north
+        faceFrame(s, x1, y1, z1, x, y1, z1, x1, y, z1, w);     // south
+        faceFrame(s, x, y1, z1, x, y1, z, x, y, z1, w);        // west
+        faceFrame(s, x1, y1, z, x1, y1, z1, x1, y, z, w);      // east
+    }
+
+    /**
+     * Four strips along the border of the face p0 p1 p2 p3 (p2 = p1 + p3 - p0), with the same
+     * winding, so face culling keeps them on the outside.
+     */
+    private static void faceFrame(VertexSink s, float ax, float ay, float az, float bx, float by, float bz,
+                                  float dx, float dy, float dz, float w) {
+        float ux = bx - ax, uy = by - ay, uz = bz - az; // p0 -> p1
+        float vx = dx - ax, vy = dy - ay, vz = dz - az; // p0 -> p3
+        strip(s, ax, ay, az, ux, uy, uz, vx, vy, vz, 0, 1, 0, w);
+        strip(s, ax, ay, az, ux, uy, uz, vx, vy, vz, 0, 1, 1 - w, 1);
+        strip(s, ax, ay, az, ux, uy, uz, vx, vy, vz, 0, w, w, 1 - w);
+        strip(s, ax, ay, az, ux, uy, uz, vx, vy, vz, 1 - w, 1, w, 1 - w);
+    }
+
+    private static void strip(VertexSink s, float ax, float ay, float az, float ux, float uy, float uz,
+                              float vx, float vy, float vz, float s0, float s1, float t0, float t1) {
+        s.flatVertex(ax + ux * s0 + vx * t0, ay + uy * s0 + vy * t0, az + uz * s0 + vz * t0);
+        s.flatVertex(ax + ux * s1 + vx * t0, ay + uy * s1 + vy * t0, az + uz * s1 + vz * t0);
+        s.flatVertex(ax + ux * s1 + vx * t1, ay + uy * s1 + vy * t1, az + uz * s1 + vz * t1);
+        s.flatVertex(ax + ux * s0 + vx * t1, ay + uy * s0 + vy * t1, az + uz * s0 + vz * t1);
+    }
+
+    /** A column of four outward faces, {@code bottom} alpha at the foot and fading out at the top. */
+    private static void beacon(VertexSink s, float cx, float y0, float cz, int bottom) {
+        float x0 = cx - BEACON_HALF, x1 = cx + BEACON_HALF, z0 = cz - BEACON_HALF, z1 = cz + BEACON_HALF;
+        float y1 = y0 + BEACON_HEIGHT;
+        int r = FRAME_R, g = FRAME_G, b = FRAME_B, top = 28;
+        // north, south, west, east: top two vertices first, as in ghost()
+        s.setColor(r, g, b, top); s.flatVertex(x0, y1, z0); s.flatVertex(x1, y1, z0);
+        s.setColor(r, g, b, bottom); s.flatVertex(x1, y0, z0); s.flatVertex(x0, y0, z0);
+        s.setColor(r, g, b, top); s.flatVertex(x1, y1, z1); s.flatVertex(x0, y1, z1);
+        s.setColor(r, g, b, bottom); s.flatVertex(x0, y0, z1); s.flatVertex(x1, y0, z1);
+        s.setColor(r, g, b, top); s.flatVertex(x0, y1, z1); s.flatVertex(x0, y1, z0);
+        s.setColor(r, g, b, bottom); s.flatVertex(x0, y0, z0); s.flatVertex(x0, y0, z1);
+        s.setColor(r, g, b, top); s.flatVertex(x1, y1, z0); s.flatVertex(x1, y1, z1);
+        s.setColor(r, g, b, bottom); s.flatVertex(x1, y0, z1); s.flatVertex(x1, y0, z0);
+    }
+
     private static boolean bucketVisible(MarkerLayer l, int b, ViewFrustum frustum, double camX, double camZ, double cullSq) {
         double dx = l.bucketCenterX(b) - camX, dz = l.bucketCenterZ(b) - camZ;
         if (dx * dx + dz * dz > cullSq) return false;

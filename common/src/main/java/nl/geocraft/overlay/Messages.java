@@ -94,6 +94,35 @@ public final class Messages {
         return "Klik: zet dit commando in je chatbalk";
     }
 
+    // Naar de GDOK-viewer (GdokLink): /gdok en de knop achter de Google Maps-regel van /waarbenik.
+
+    /** De knop achter de Google Maps-regel van /waarbenik. */
+    public static String gdokButton() {
+        return "§a§l[GDOK]";
+    }
+
+    public static String gdokButtonHover() {
+        return "Open deze plek in de GDOK-viewer";
+    }
+
+    /** /gdok: de viewer gaat open; de link erachter voor als de browser niet vanzelf opent. */
+    public static String gdokOpening(int x, int z) {
+        return PREFIX + "§fDe viewer gaat open op " + x + ", " + z + ". ";
+    }
+
+    /** /gdok met een open viewer: die vliegt naar je plek (geen nieuw tabblad). */
+    public static String gdokFlown(int x, int z) {
+        return PREFIX + "§fDe viewer in je browser staat nu op " + x + ", " + z + ".";
+    }
+
+    public static String gdokLinkLabel() {
+        return "§b§n[Link]";
+    }
+
+    public static String gdokOnlyOnGeoCraft() {
+        return PREFIX + "§7Dit werkt alleen op GeoCraft.";
+    }
+
     private static String nl(int n) {
         return String.format(java.util.Locale.ROOT, "%,d", n).replace(',', '.');
     }

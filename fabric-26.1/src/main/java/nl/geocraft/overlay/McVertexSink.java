@@ -61,6 +61,8 @@ final class McVertexSink implements VertexSink {
 
     @Override
     public void flatVertex(float x, float y, float z) {
-        buffer.addVertex(pose, x, y, z).setColor(r, g, b, a);
+        // Light only lands in formats that have it (the see-through layer); debug quads skip it.
+        count++;
+        buffer.addVertex(pose, x, y, z).setColor(r, g, b, a).setLight(FULL_BRIGHT);
     }
 }

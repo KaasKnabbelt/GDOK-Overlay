@@ -3,6 +3,7 @@ package nl.geocraft.overlay;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandManager;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
+import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
 import net.fabricmc.fabric.api.client.message.v1.ClientSendMessageEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientChunkEvents;
@@ -13,6 +14,7 @@ import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.util.Identifier;
+import nl.geocraft.overlay.markers.MarkerAssist;
 import nl.geocraft.overlay.markers.MarkerManager;
 import nl.geocraft.overlay.markers.PasteChat;
 import org.lwjgl.glfw.GLFW;
@@ -86,12 +88,18 @@ public class GeoOverlayMod implements ClientModInitializer {
         // zelf niets uit.
         PasteChat.getInstance().setPrinter(PasteLines::print);
         ClientSendMessageEvents.COMMAND.register(PasteLines::onCommandSent);
+        // /gdok opent de viewer op je plek, /gdok paste geeft de paste-commando's (GdokChat).
         ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> dispatcher.register(
-                ClientCommandManager.literal("gdok").then(ClientCommandManager.literal("paste").executes(ctx -> {
-                    net.minecraft.client.MinecraftClient mc = net.minecraft.client.MinecraftClient.getInstance();
-                    if (mc.player != null) PasteChat.getInstance().requestNearest(mc.player.getX(), mc.player.getZ());
-                    return 1;
-                }))));
+                ClientCommandManager.literal("gdok").executes(ctx -> GdokChat.openViewer())
+                        .then(ClientCommandManager.literal("paste").executes(ctx -> {
+                            net.minecraft.client.MinecraftClient mc = net.minecraft.client.MinecraftClient.getInstance();
+                            if (mc.player != null) PasteChat.getInstance().requestNearest(mc.player.getX(), mc.player.getZ());
+                            return 1;
+                        }))));
+        // De knop [GDOK] achter de Google Maps-regel van /waarbenik.
+        ClientReceiveMessageEvents.MODIFY_GAME.register(GdokChat::onGameMessage);
+        // De HUD met hoeveel er nog te doen is in het plan waar je staat (BOMEN.md §9.8).
+        MarkerHud.register();
         // Middel- en rechtsklik op een spookmarker: vóór vanilla de toetsen afhandelt.
         ClientTickEvents.START_CLIENT_TICK.register(MarkerInput::onStartTick);
 
@@ -139,6 +147,7 @@ public class GeoOverlayMod implements ClientModInitializer {
             gate.reset();
             overlayManager.resetSession();
             MarkerManager.getInstance().resetSession();
+            MarkerAssist.reset();
             PasteChat.getInstance().reset();
             PasteLines.reset();
 
@@ -180,6 +189,7 @@ public class GeoOverlayMod implements ClientModInitializer {
             ServerGate.getInstance().reset();
             overlayManager.resetSession();
             MarkerManager.getInstance().resetSession();
+            MarkerAssist.reset();
             PasteChat.getInstance().reset();
             PasteLines.reset();
             PlayerTracker.getInstance().clear();

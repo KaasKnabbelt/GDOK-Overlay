@@ -19,6 +19,8 @@ import org.slf4j.LoggerFactory;
 import java.net.InetSocketAddress;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
 /**
@@ -37,11 +39,18 @@ import java.util.regex.Pattern;
  * <p>Protocol 3 (1.1.2, tree plans, BOMEN.md §9.1) adds {@code features} to the hello and the
  * marker layers. Site → mod: {@code markers/set} (see {@link MarkerPlanParser}; since beta.3
  * with {@code paste: {flags}}), {@code markers/remove {id}}. Mod → site:
- * {@code markers/progress {id, total, placed, planted, blocked, existing, empty, foreign?}}
+ * {@code markers/progress {id, total, placed, planted, blocked, existing, empty, foreign?, nog}}
+ * ({@code nog} since beta.4: per marker block, in the order of the plan's {@code blocks}, the
+ * markers still to do: to put down plus blocked)
  * ({@code foreign}: marker blocks in the area that are not part of the plan, once checked) and
  * {@code markers/removed {id}}. The features since beta.3: {@code markers}, {@code place}
  * (right-click on a ghost places it) and {@code paste} (the paste commands in the chat). Beta.1
  * and beta.2 announced {@code plant} and ran the commands themselves; beta.3 runs nothing.</p>
+ *
+ * <p>Since beta.4 the site answers the hello with {@code site/hello {features}}; a viewer that
+ * names {@code goto} gets {@code view/goto {x, z}} from {@code /gdok} and flies to that block
+ * ({@link #sendGoto}). Older mods ignore {@code site/hello}; an older site never sends it, and
+ * then {@code /gdok} opens the browser.</p>
  *
  * <h2>Security</h2>
  * <p>Any web page can try to open {@code ws://127.0.0.1:4945}. The handshake therefore only
@@ -65,6 +74,8 @@ public class BridgeServer extends WebSocketServer {
     private final OverlayManager overlayManager;
     private static java.util.function.Consumer<String> commandRunner;
     private static BridgeServer instance;
+    /** Connections whose viewer understands {@code view/goto} (it said so in {@code site/hello}). */
+    private final Set<WebSocket> gotoViewers = ConcurrentHashMap.newKeySet();
 
     /**
      * Only these pages may connect: gdok.nl, and localhost/127.0.0.1 for development. A client
@@ -145,7 +156,34 @@ public class BridgeServer extends WebSocketServer {
 
     @Override
     public void onClose(WebSocket conn, int code, String reason, boolean remote) {
+        gotoViewers.remove(conn);
         LOGGER.info("[GeoCraft Overlay] GDOK verbinding verbroken");
+    }
+
+    /**
+     * {@code /gdok} (C3, chosen by Jens on 31 October 2026): every open viewer that understands
+     * {@code view/goto} flies to block (x, z). False when there is none; the caller then opens
+     * the browser.
+     */
+    public boolean sendGoto(int x, int z) {
+        JsonObject msg = new JsonObject();
+        msg.addProperty("type", "view");
+        msg.addProperty("action", "goto");
+        msg.addProperty("x", x);
+        msg.addProperty("z", z);
+        String json = msg.toString();
+        boolean sent = false;
+        for (WebSocket conn : gotoViewers) {
+            if (!conn.isOpen()) continue;
+            try {
+                conn.send(json);
+                sent = true;
+            } catch (RuntimeException e) {
+                // The tab closed between isOpen and send; the next viewer, or the browser, then.
+                LOGGER.debug("[GeoCraft Overlay] goto niet verstuurd: {}", e.getMessage());
+            }
+        }
+        return sent;
     }
 
     /**
@@ -209,6 +247,8 @@ public class BridgeServer extends WebSocketServer {
                 if ("run".equals(action)) {
                     handleCommand(msg);
                 }
+            } else if ("site".equals(type)) {
+                if ("hello".equals(action)) handleSiteHello(conn, msg);
             } else if ("markers".equals(type)) {
                 switch (action) {
                     case "set" -> handleMarkersSet(msg);
@@ -355,6 +395,17 @@ public class BridgeServer extends WebSocketServer {
         }
     }
 
+    private void handleSiteHello(WebSocket conn, JsonObject msg) {
+        boolean go = false;
+        if (msg.has("features") && msg.get("features").isJsonArray()) {
+            for (var f : msg.getAsJsonArray("features")) {
+                if (f.isJsonPrimitive() && "goto".equals(f.getAsString())) go = true;
+            }
+        }
+        if (go) gotoViewers.add(conn);
+        else gotoViewers.remove(conn);
+    }
+
     public void broadcastMarkerProgress(MarkerLayer layer) {
         MarkerLayer.Counts c = layer.counts();
         JsonObject msg = new JsonObject();
@@ -368,6 +419,10 @@ public class BridgeServer extends WebSocketServer {
         msg.addProperty("existing", c.existing());
         msg.addProperty("empty", c.toPlace());
         if (c.foreign() >= 0) msg.addProperty("foreign", c.foreign());
+        // Per marker block (same order as the plan's blocks): still to do, for "nog 6 van 9".
+        com.google.gson.JsonArray nog = new com.google.gson.JsonArray();
+        for (int n : layer.todoPerBlock()) nog.add(n);
+        msg.add("nog", nog);
         broadcastMessage(msg);
     }
 

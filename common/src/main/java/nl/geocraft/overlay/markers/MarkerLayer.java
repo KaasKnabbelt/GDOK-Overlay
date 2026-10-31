@@ -61,8 +61,15 @@ public final class MarkerLayer {
     /** Sprite UVs per block index ({u0, u1, v0, v1}), filled by the renderer; null = not looked up. */
     public float[][] uvCache;
 
+    /**
+     * Per marker block (index into {@code plan.blocks()}): markers still to do, the site's
+     * "Nog N" per block (to put down plus blocked). Sent to the site as {@code nog}.
+     */
+    private final int[] todoPerBlock;
+
     /** Last counts sent to the site, and ticks since; see {@link MarkerManager#tick}. */
     Counts reported;
+    int[] reportedTodo;
     int ticksSinceReport;
 
     MarkerLayer(MarkerPlan plan) {
@@ -72,6 +79,7 @@ public final class MarkerLayer {
         status = new byte[n];
         wasPlaced = new boolean[n];
         for (int i = 0; i < n; i++) y[i] = plan.markers()[i].siteY();
+        todoPerBlock = new int[plan.blocks().size()];
 
         // Buckets: marker indices sorted by chunk key, then one bucket per distinct key.
         Integer[] idx = new Integer[n];
@@ -179,6 +187,11 @@ public final class MarkerLayer {
         return counts;
     }
 
+    /** Markers still to do per marker block, after the last {@link #recount}; do not modify. */
+    public int[] todoPerBlock() {
+        return todoPerBlock;
+    }
+
     /** Foreign marker blocks from the last check (see {@link ForeignCheck}), or -1 before the first. */
     public int foreignCount() {
         return foreignCount;
@@ -245,8 +258,11 @@ public final class MarkerLayer {
 
     void recount() {
         int unknown = 0, empty = 0, placed = 0, blocked = 0, existing = 0, planted = 0;
-        for (byte s : status) {
-            switch (MarkerStatus.of(s)) {
+        Arrays.fill(todoPerBlock, 0);
+        MarkerPlan.Marker[] m = plan.markers();
+        for (int i = 0; i < status.length; i++) {
+            MarkerStatus s = MarkerStatus.of(status[i]);
+            switch (s) {
                 case UNKNOWN -> unknown++;
                 case EMPTY -> empty++;
                 case PLACED -> placed++;
@@ -254,6 +270,7 @@ public final class MarkerLayer {
                 case TREE -> existing++;
                 case PLANTED -> planted++;
             }
+            if (s.needsMarker() || s == MarkerStatus.BLOCKED) todoPerBlock[m[i].block()]++;
         }
         counts = new Counts(size(), unknown, empty, placed, blocked, existing, planted, foreignCount);
     }

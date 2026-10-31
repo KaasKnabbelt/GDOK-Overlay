@@ -169,6 +169,7 @@ public class OverlayManagerScreen extends Screen {
             if (!plans.isEmpty()) {
                 addEntry(new TextEntry(Component.literal("Bomenplannen").withColor(WHITE)));
                 for (OverlayMenuState.PlanRow plan : plans) addEntry(new PlanEntry(plan));
+                addEntry(new PlanHelpEntry());
             }
             addEntry(new TextEntry(Component.literal("Instellingen").withColor(WHITE)));
             if (advanced) {
@@ -420,6 +421,32 @@ public class OverlayManagerScreen extends Screen {
         @Override
         public List<? extends GuiEventListener> children() {
             return List.of(command, visibility, remove);
+        }
+    }
+
+    /** Under the plans: the frames through blocks and the bar at the top on or off (BOMEN.md §9.8). */
+    private class PlanHelpEntry extends Entry {
+        private final CycleButton<Boolean> seeThrough = CycleButton.onOffBuilder(state.markerSeeThrough())
+                .withTooltip(v -> Tooltip.create(Component.literal(
+                        "Markers die nog neer moeten krijgen een geel kader, ook achter muren (tot 48 blokken). Met 10 of minder over ook een lichtzuil.")))
+                .create(0, 0, 150, 20, Component.literal("Door blokken"), (b, v) -> state.setMarkerSeeThrough(v));
+        private final CycleButton<Boolean> hud = CycleButton.onOffBuilder(state.markerHud())
+                .withTooltip(v -> Tooltip.create(Component.literal(
+                        "Bovenin hoeveel er nog te doen is in het plan waar je staat.")))
+                .create(0, 0, 150, 20, Component.literal("Teller bovenin"), (b, v) -> state.setMarkerHud(v));
+
+        @Override
+        public void extractContent(GuiGraphicsExtractor graphics, int mouseX, int mouseY, boolean hovered, float a) {
+            int y = getContentY() + (getContentHeight() - 20) / 2;
+            seeThrough.setPosition(getContentXMiddle() - 155, y);
+            seeThrough.extractRenderState(graphics, mouseX, mouseY, a);
+            hud.setPosition(getContentXMiddle() + 5, y);
+            hud.extractRenderState(graphics, mouseX, mouseY, a);
+        }
+
+        @Override
+        public List<? extends GuiEventListener> children() {
+            return List.of(seeThrough, hud);
         }
     }
 

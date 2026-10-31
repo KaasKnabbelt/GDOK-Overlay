@@ -15,6 +15,7 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.phys.Vec3;
+import nl.geocraft.overlay.markers.MarkerAssist;
 import nl.geocraft.overlay.markers.MarkerLayer;
 import nl.geocraft.overlay.markers.MarkerManager;
 import nl.geocraft.overlay.markers.MarkerRenderCore;
@@ -44,6 +45,7 @@ public class OverlayRenderer {
     private final RenderType slabRenderType = RenderTypes.entityTranslucent(BLOCK_ATLAS);
     private final SubmitNodeCollector.CustomGeometryRenderer slabPass = this::drawSlabs;
     private final SubmitNodeCollector.CustomGeometryRenderer borderPass = this::drawBorders;
+    private final SubmitNodeCollector.CustomGeometryRenderer seeThroughPass = this::drawSeeThrough;
     private final BlockPos.MutableBlockPos probePos = new BlockPos.MutableBlockPos();
     private final OccupancyProbe probe = this::isOccupied;
     private final MeshCache.UvLookup uvLookup = this::lookupUv;
@@ -61,7 +63,7 @@ public class OverlayRenderer {
     private double maxDist;
     private int alpha;
     private boolean drawOverlays, drawMarkers;
-    private long lastSlabVertices, lastMarkerVertices;
+    private long lastSlabVertices, lastMarkerVertices, lastSeeThroughVertices;
     /** Klik-marker-cel (of SKIP_NONE): andere overlays op dezelfde render-Y slaan die cel over. */
     private int markerX = BakedOverlayMesh.SKIP_NONE, markerZ, markerY;
 
@@ -141,6 +143,14 @@ public class OverlayRenderer {
 
         context.submitNodeCollector().submitCustomGeometry(context.poseStack(), slabRenderType, slabPass);
         context.submitNodeCollector().submitCustomGeometry(context.poseStack(), RenderTypes.debugQuads(), borderPass);
+
+        // Markers still to put down, through blocks (BOMEN.md §9.8): a yellow frame, and beacons
+        // when few are left. Vanilla's see-through layer of name tags (no depth test).
+        if (drawMarkers && OverlayConfig.getInstance().isMarkerSeeThrough()) {
+            context.submitNodeCollector().submitCustomGeometry(context.poseStack(), RenderTypes.textBackgroundSeeThrough(), seeThroughPass);
+        } else {
+            lastSeeThroughVertices = 0;
+        }
     }
 
     /**
@@ -151,6 +161,7 @@ public class OverlayRenderer {
         double px = client.player != null ? client.player.getX() : camX;
         double pz = client.player != null ? client.player.getZ() : camZ;
         MarkerManager.getInstance().tick(client.level != null ? markerProbe : null, px, pz);
+        MarkerAssist.tick(MarkerManager.getInstance(), px, pz);
         if (client.level == null || cache.isEmpty()) return;
         occupancy.tick(cache.entries(), probe, px, pz);
     }
@@ -163,6 +174,11 @@ public class OverlayRenderer {
     /** Vertices emitted for marker ghosts in the last slab pass (diagnostics/gametests). */
     public long lastMarkerVertices() {
         return lastMarkerVertices;
+    }
+
+    /** Vertices of the frames and beacons through blocks in the last frame (diagnostics/gametests). */
+    public long lastSeeThroughVertices() {
+        return lastSeeThroughVertices;
     }
 
     /** Vertices emitted in the last slab pass (diagnostics/gametests). */
@@ -228,6 +244,15 @@ public class OverlayRenderer {
             e.mesh.replayBorders(sink, frustum, camX, camY, camZ, e.mesh.renderY(), maxDist,
                     yield ? markerX : BakedOverlayMesh.SKIP_NONE, yield ? markerZ : 0);
         }
+        // The border pass is not counted; the counts are per pass. Every pass ends with the count
+        // at zero, so it does not matter in which order the submits run.
+        sink.takeCount();
+    }
+
+    private void drawSeeThrough(PoseStack.Pose pose, VertexConsumer buffer) {
+        sink.begin(buffer, pose);
+        MarkerRenderCore.emitSeeThrough(MarkerManager.getInstance().layers(), sink, frustum, camX, camY, camZ, maxDist);
+        lastSeeThroughVertices = sink.takeCount();
     }
 
     // -- World / sprite access ----------------------------------------

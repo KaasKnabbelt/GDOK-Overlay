@@ -1,10 +1,11 @@
 // Module voor Minecraft 26.1.2: een tweeling van fabric-26.x (mojmap), toegevoegd op
 // 25 augustus 2026 omdat de GeoCraft-server nog niet op 26.2 draait. Verschillen met
 // fabric-26.x: gradle.properties (26.1.2, loader 0.18.4, Fabric API 0.149), fabric.mod.json
-// (minecraft >=26.1 <26.2), ModMenu 18.0.0-alpha.8, en drie API-namen in de bron
-// (setScreen i.p.v. gui.setScreen, Blocks.WHITE_WOOL i.p.v. Blocks.WOOL.white(),
-// getMainCamera() i.p.v. mainCamera()). Wijzig je iets client-side, spiegel het dan in
-// ALLE module-tweelingen. Zodra GeoCraft 26.2 ondersteunt kan deze module weg.
+// (minecraft >=26.1 <26.2), ModMenu 18.0.0-alpha.8, en een paar API-namen in de bron
+// (setScreen i.p.v. gui.setScreen, client.screen i.p.v. gui.screen(), gui.getChat() i.p.v.
+// gui.hud.getChat(), options.hideGui i.p.v. gui.hud.isHidden(), Blocks.WHITE_WOOL i.p.v.
+// Blocks.WOOL.white(), getMainCamera() i.p.v. mainCamera()). Wijzig je iets client-side,
+// spiegel het dan in ALLE module-tweelingen. Zodra GeoCraft 26.2 ondersteunt kan deze module weg.
 plugins {
     id 'net.fabricmc.fabric-loom' version '1.17.19'
 }

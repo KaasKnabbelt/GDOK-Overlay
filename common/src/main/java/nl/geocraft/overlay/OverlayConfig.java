@@ -29,6 +29,10 @@ public class OverlayConfig {
     private int opacityPercent = 50;
     private boolean shareLocation = false;
     private boolean sameLevel = true;
+    /** Bomenplannen (BOMEN.md §9.8): markers die nog moeten met een kader door blokken heen. */
+    private boolean markerSeeThrough = true;
+    /** Bomenplannen: de balk bovenin met hoeveel er nog te doen is. */
+    private boolean markerHud = true;
     private volatile RenderMode renderMode = RenderMode.FULLBLOCK;
     /** The one-time "druk op G" chat hint has been shown (persisted, so it really is one-time). */
     private volatile boolean gKeyHintShown = false;
@@ -94,6 +98,22 @@ public class OverlayConfig {
         this.gKeyHintShown = value;
     }
 
+    public boolean isMarkerSeeThrough() {
+        return markerSeeThrough;
+    }
+
+    public void setMarkerSeeThrough(boolean value) {
+        this.markerSeeThrough = value;
+    }
+
+    public boolean isMarkerHud() {
+        return markerHud;
+    }
+
+    public void setMarkerHud(boolean value) {
+        this.markerHud = value;
+    }
+
     public boolean isAdvancedMenu() {
         return advancedMenu;
     }
@@ -123,6 +143,8 @@ public class OverlayConfig {
                 renderMode = RenderMode.fromConfig(data.renderMode);
                 gKeyHintShown = data.gKeyHintShown;
                 advancedMenu = data.advancedMenu;
+                markerSeeThrough = data.markerSeeThrough;
+                markerHud = data.markerHud;
                 OverlayManager.getInstance().setSameLevel(sameLevel);
             }
         } catch (IOException | RuntimeException e) {
@@ -139,6 +161,8 @@ public class OverlayConfig {
             data.renderMode = renderMode.configValue();
             data.gKeyHintShown = gKeyHintShown;
             data.advancedMenu = advancedMenu;
+            data.markerSeeThrough = markerSeeThrough;
+            data.markerHud = markerHud;
             Path path = configPath();
             Files.createDirectories(path.getParent());
             Files.writeString(path, GSON.toJson(data));
@@ -154,5 +178,7 @@ public class OverlayConfig {
         String renderMode = "fullblock";
         boolean gKeyHintShown = false;
         boolean advancedMenu = false;
+        boolean markerSeeThrough = true;
+        boolean markerHud = true;
     }
 }

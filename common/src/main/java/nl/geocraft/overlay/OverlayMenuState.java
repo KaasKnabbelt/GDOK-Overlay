@@ -129,6 +129,24 @@ public final class OverlayMenuState {
         return config.isShareLocation();
     }
 
+    /** Tree plans: frames through blocks (BOMEN.md §9.8). */
+    public boolean markerSeeThrough() {
+        return config.isMarkerSeeThrough();
+    }
+
+    public void setMarkerSeeThrough(boolean value) {
+        config.setMarkerSeeThrough(value);
+    }
+
+    /** Tree plans: the bar at the top. */
+    public boolean markerHud() {
+        return config.isMarkerHud();
+    }
+
+    public void setMarkerHud(boolean value) {
+        config.setMarkerHud(value);
+    }
+
     /** Advanced menu mode (per-layer steppers/pins, shared level, location, keybinds). */
     public boolean advancedMenu() {
         return config.isAdvancedMenu();

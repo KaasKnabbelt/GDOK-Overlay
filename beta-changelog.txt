@@ -1,9 +1,8 @@
 # Changelog van de huidige beta, één punt per regel (regels met # tellen niet mee).
 # publishBeta zet dit in beta-info.json; /beta toont het aan de testers.
-Beta 3: alles eenvoudiger, met één boomset (gdok).
-Rechtsklik op een spookblok zet het juiste blok neer, wat je ook vasthoudt (creative). Ingedrukt houden en rondkijken zet ze één voor één.
-Kijk je naar een spookblok, dan staat de bloknaam onderin beeld; na elke plaatsing de teller.
-Bomen planten is weg: de mod voert geen commando's meer uit. Commando in het G-menu geeft de paste-commando's in de chat.
-Klik een commando in de chat en het staat in je chatbalk; na Enter wordt de regel grijs. Ook via /gdok paste.
-Markerblokken in het gebied die niet bij het plan horen krijgen een rode rand en een waarschuwing in het G-menu en boven de commando's.
-Middelklik op een spookblok zet het blok in je hand, zoals eerder.
+Beta 4: hulp bij het afmaken van een plan.
+Markers die nog neer moeten krijgen een geel kader, ook achter muren en bomen. Zijn er in een plan nog 10 of minder over, dan staat er ook een gele zuil boven.
+Bovenin staat in een plan hoeveel er nog te doen is, met een groene balk. Kader en balk staan in het G-menu onder de plannen (Door blokken, Teller bovenin).
+/gdok opent de GDOK-viewer op je plek. Staat de viewer al open, dan vliegt die erheen.
+Achter de Google Maps-regel van /waarbenik staat [GDOK]: een klik opent de viewer op die plek.
+Het paneel op de site toont per markerblok hoeveel er nog moeten.

@@ -231,8 +231,10 @@ public final class MarkerManager {
         for (MarkerLayer l : list) {
             l.recount();
             l.ticksSinceReport++;
-            if (reporter != null && !l.counts().equals(l.reported) && l.ticksSinceReport >= REPORT_INTERVAL) {
+            boolean changed = !l.counts().equals(l.reported) || !java.util.Arrays.equals(l.todoPerBlock(), l.reportedTodo);
+            if (reporter != null && changed && l.ticksSinceReport >= REPORT_INTERVAL) {
                 l.reported = l.counts();
+                l.reportedTodo = l.todoPerBlock().clone();
                 l.ticksSinceReport = 0;
                 reporter.progress(l);
             }
