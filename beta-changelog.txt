@@ -1,8 +1,3 @@
 # Changelog van de huidige beta, één punt per regel (regels met # tellen niet mee).
 # publishBeta zet dit in beta-info.json; /beta toont het aan de testers.
-Beta 4: hulp bij het afmaken van een plan.
-Markers die nog neer moeten krijgen een geel kader, ook achter muren en bomen. Zijn er in een plan nog 10 of minder over, dan staat er ook een gele zuil boven.
-Bovenin staat in een plan hoeveel er nog te doen is, met een groene balk. Kader en balk staan in het G-menu onder de plannen (Door blokken, Teller bovenin).
-/gdok opent de GDOK-viewer op je plek. Staat de viewer al open, dan vliegt die erheen.
-Achter de Google Maps-regel van /waarbenik staat [GDOK]: een klik opent de viewer op die plek.
-Het paneel op de site toont per markerblok hoeveel er nog moeten.
+# Nu geen beta: 1.2.0 (bomenplannen) is op 1 november 2026 openbaar uitgebracht.

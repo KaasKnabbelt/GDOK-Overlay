@@ -3,7 +3,7 @@
     "id": "geocraft-overlay",
     "version": "${version}",
     "name": "GDOK Overlay",
-    "description": "Visualiseert metingen en BGT-omtrekken van GDOK als overlay in Minecraft",
+    "description": "Visualiseert metingen, BGT-omtrekken en bomenplannen van GDOK als overlay in Minecraft",
     "authors": ["OfficialNyanCat"],
     "contact": {
         "homepage": "https://gdok.nl",
