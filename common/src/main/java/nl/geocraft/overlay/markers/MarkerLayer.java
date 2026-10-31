@@ -1,6 +1,7 @@
 package nl.geocraft.overlay.markers;
 
 import java.util.Arrays;
+import java.util.List;
 
 /**
  * One marker layer in the mod: the plan from the site plus what the scanner found per marker.
@@ -12,9 +13,13 @@ import java.util.Arrays;
  */
 public final class MarkerLayer {
 
-    /** Marker counts per status, as reported to the site and shown in the G menu. */
-    public record Counts(int total, int unknown, int empty, int placed, int blocked, int existing, int planted) {
-        public static final Counts EMPTY = new Counts(0, 0, 0, 0, 0, 0, 0);
+    /**
+     * Marker counts per status, as reported to the site and shown in the G menu, plus the
+     * marker blocks in the area that are not part of the plan ({@link ForeignCheck}; -1 = not
+     * checked yet).
+     */
+    public record Counts(int total, int unknown, int empty, int placed, int blocked, int existing, int planted, int foreign) {
+        public static final Counts EMPTY = new Counts(0, 0, 0, 0, 0, 0, 0, -1);
 
         /** Markers the player still has to put down. */
         public int toPlace() {
@@ -41,8 +46,17 @@ public final class MarkerLayer {
 
     private boolean hidden;
     private Counts counts = Counts.EMPTY;
-    /** Positions (see {@link #packPos}) of marker blocks outside the plan, from the last plant check. */
-    private long[] strays = new long[0];
+
+    // Result of the last ForeignCheck. Positions are packed ({@link #packPos}) with the plan
+    // block index next to them, so MarkerManager can drop the ones that are gone again.
+    private int foreignCount = -1;
+    long[] foreignPos = new long[0];
+    int[] foreignBlock = new int[0];
+    int foreignN = 0;
+    int foreignCursor = 0;
+    private double foreignUnloaded = 0;
+    private List<String> checkedBlocks = List.of();
+    private int checks = 0;
 
     /** Sprite UVs per block index ({u0, u1, v0, v1}), filled by the renderer; null = not looked up. */
     public float[][] uvCache;
@@ -165,17 +179,64 @@ public final class MarkerLayer {
         return counts;
     }
 
-    public long[] strays() {
-        return strays;
+    /** Foreign marker blocks from the last check (see {@link ForeignCheck}), or -1 before the first. */
+    public int foreignCount() {
+        return foreignCount;
     }
 
-    void setStrays(long[] strays) {
-        this.strays = strays;
+    /** How many foreign positions are known (at most {@link ForeignCheck#MAX_POSITIONS}). */
+    public int foreignPositions() {
+        return foreignN;
+    }
+
+    /** Packed position ({@link #packPos}) of foreign marker block {@code k}. */
+    public long foreignPos(int k) {
+        return foreignPos[k];
+    }
+
+    /** Share of the area (0..1) the last check could not see: chunks that were not loaded. */
+    public double foreignUnloaded() {
+        return foreignUnloaded;
+    }
+
+    /** The paste blocks the last check looked for: the placed marker types at that moment. */
+    public List<String> checkedBlocks() {
+        return checkedBlocks;
+    }
+
+    /** Completed checks; {@link PasteChat} waits for this to go up. */
+    public int checks() {
+        return checks;
+    }
+
+    void setForeign(ForeignCheck c) {
+        foreignCount = c.foreign();
+        foreignPos = c.positions();
+        foreignBlock = c.positionBlocks();
+        foreignN = foreignPos.length;
+        foreignCursor = 0;
+        foreignUnloaded = c.unloadedFraction();
+        checkedBlocks = c.targets();
+        checks++;
+    }
+
+    /** A foreign block is gone (removed by a builder): off the count and out of view. */
+    void dropForeign(int k) {
+        foreignN--;
+        foreignPos[k] = foreignPos[foreignN];
+        foreignBlock[k] = foreignBlock[foreignN];
+        if (foreignCount > 0) foreignCount--;
     }
 
     void markChunkDirty(int chunkX, int chunkZ) {
         int b = Arrays.binarySearch(bucketKeys, chunkKey(chunkX, chunkZ));
         if (b >= 0) bucketDirty[b] = true;
+    }
+
+    /** A loaded chunk of this plan that the scanner has not been through yet. */
+    boolean hasDirtyBucket() {
+        for (boolean d : bucketDirty) if (d) return true;
+        return false;
     }
 
     void markAllDirty() {
@@ -194,7 +255,7 @@ public final class MarkerLayer {
                 case PLANTED -> planted++;
             }
         }
-        counts = new Counts(size(), unknown, empty, placed, blocked, existing, planted);
+        counts = new Counts(size(), unknown, empty, placed, blocked, existing, planted, foreignCount);
     }
 
     // -- Keys ---------------------------------------------------------

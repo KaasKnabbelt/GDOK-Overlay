@@ -3,6 +3,7 @@ package nl.geocraft.overlay.markers;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -13,7 +14,11 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 /**
  * The marker layers of the tree plans (BOMEN.md §9). Stands apart from the overlays: an overlay
  * has one height and one block for all its cells, which suits painting; a tree plan needs a
- * height and a block per marker, a status per marker and a planting flow.
+ * height and a block per marker, and a status per marker.
+ *
+ * <p>Also runs the {@link ForeignCheck}s (one at a time, queued by {@link #requestForeignCheck})
+ * and slowly re-polls the foreign positions found, so a placeholder a builder removes drops off
+ * the count and loses its red box without a new check.</p>
  *
  * <p>Threading: the WebSocket thread only <em>submits</em> ({@link #submitSet},
  * {@link #submitRemove}); {@link #tick} applies those on the client thread, where everything
@@ -37,6 +42,8 @@ public final class MarkerManager {
     public static final double NEAR_RADIUS = 64.0;
     /** Progress to the site at most this often per layer (ticks), and only when the counts changed. */
     public static final int REPORT_INTERVAL = 10;
+    /** Foreign positions re-polled per layer per tick. */
+    public static final int FOREIGN_BUDGET = 8;
 
     /** Callbacks to the site (set by the bridge). */
     public interface Reporter {
@@ -62,6 +69,8 @@ public final class MarkerManager {
     private int rrLayer = 0, rrMarker = 0;
     private MarkerProbe begunProbe;
     private MarkerPlan begunPlan;
+    private final ArrayDeque<String> checkQueue = new ArrayDeque<>();
+    private ForeignCheck check;
 
     public static MarkerManager getInstance() {
         return INSTANCE;
@@ -134,15 +143,38 @@ public final class MarkerManager {
         for (MarkerLayer l : list) l.markAllDirty();
     }
 
-    /** Result of a plant check: the marker blocks outside the plan, for the renderer. */
-    public void setStrays(String id, long[] strays) {
-        MarkerLayer l = layers.get(id);
-        if (l != null) l.setStrays(strays);
+    /**
+     * Check this plan's area for foreign marker blocks ({@link ForeignCheck}), on the next ticks.
+     * A check that is already queued or running for the plan counts; {@link MarkerLayer#checks()}
+     * goes up when it is done.
+     */
+    public void requestForeignCheck(String id) {
+        if (check != null && check.layer().id().equals(id)) return;
+        if (!checkQueue.contains(id)) checkQueue.add(id);
+    }
+
+    /** The G menu opened: check every plan. */
+    public void requestForeignChecks() {
+        for (MarkerLayer l : list) requestForeignCheck(l.id());
+    }
+
+    /** The plan the player stands in, else the one with the nearest edge; null without plans. */
+    public MarkerLayer nearest(double x, double z) {
+        MarkerLayer best = null;
+        double bestDistance = Double.MAX_VALUE;
+        for (MarkerLayer l : list) {
+            double d = PlanArea.distance(l.plan.polygon(), x, z);
+            if (d < bestDistance) {
+                bestDistance = d;
+                best = l;
+            }
+        }
+        return best;
     }
 
     /**
-     * Once per client tick: apply the site's messages, rescan markers within budget and send
-     * changed counts to the site.
+     * Once per client tick: apply the site's messages, rescan markers within budget, run the
+     * foreign check and send changed counts to the site.
      *
      * @param probe  world access, or {@code null} when there is no world (only the queue is applied)
      * @param px, pz player position, to scan nearby markers first
@@ -193,6 +225,9 @@ public final class MarkerManager {
             MarkerScanner.scan(l, rrMarker++, probe, kinds);
         }
 
+        runForeignCheck(probe);
+        for (MarkerLayer l : list) pollForeign(l, probe);
+
         for (MarkerLayer l : list) {
             l.recount();
             l.ticksSinceReport++;
@@ -210,7 +245,11 @@ public final class MarkerManager {
         while ((op = pending.poll()) != null) {
             any = true;
             switch (op) {
-                case ClearOp c -> layers.clear();
+                case ClearOp c -> {
+                    layers.clear();
+                    checkQueue.clear();
+                    check = null;
+                }
                 case RemoveOp r -> layers.remove(r.id());
                 case SetOp s -> set(s.plan());
             }
@@ -240,6 +279,47 @@ public final class MarkerManager {
         rrLayer = 0;
         rrMarker = 0;
         revision++;
+    }
+
+    private void runForeignCheck(MarkerProbe probe) {
+        if (check != null && layers.get(check.layer().id()) != check.layer()) {
+            // The site sent a new version of the plan (or removed it) during the check.
+            String id = check.layer().id();
+            check = null;
+            if (layers.containsKey(id)) checkQueue.addFirst(id);
+        }
+        if (check == null) {
+            String id = checkQueue.peek();
+            MarkerLayer l = id == null ? null : layers.get(id);
+            if (id != null && l == null) {
+                checkQueue.poll();
+            } else if (l != null && !l.hasDirtyBucket()) {
+                // Only once the scanner is through: the targets are the placed markers.
+                checkQueue.poll();
+                check = new ForeignCheck(l);
+            }
+        }
+        if (check != null && check.tick(probe)) {
+            check.layer().setForeign(check);
+            check = null;
+        }
+    }
+
+    /** Re-poll a few foreign positions: one that is no longer a marker block drops off. */
+    private void pollForeign(MarkerLayer l, MarkerProbe probe) {
+        if (l.foreignN == 0) return;
+        begin(probe, l);
+        for (int k = 0; k < FOREIGN_BUDGET && l.foreignN > 0; k++) {
+            if (l.foreignCursor >= l.foreignN) l.foreignCursor = 0;
+            int at = l.foreignCursor;
+            long p = l.foreignPos[at];
+            int x = MarkerLayer.unpackX(p), y = MarkerLayer.unpackY(p), z = MarkerLayer.unpackZ(p);
+            if (probe.isChunkLoaded(x >> 4, z >> 4) && probe.kind(x, y, z, l.foreignBlock[at]) != MarkerProbe.MARKER) {
+                l.dropForeign(at); // the last one moved into this slot: look at it next
+            } else {
+                l.foreignCursor++;
+            }
+        }
     }
 
     /** beginPlan only when the probe is not already prepared for this layer's plan. */

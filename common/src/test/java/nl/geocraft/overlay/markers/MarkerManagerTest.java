@@ -114,7 +114,7 @@ class MarkerManagerTest {
         int[][] many = new int[MarkerPlanParser.MAX_MARKERS][];
         for (int i = 0; i < many.length; i++) many[i] = new int[]{i % 40, i / 40, 64, 0, 0};
         for (int p = 0; p < 3; p++) {
-            JsonObject msg = message("plan-" + p, SQUARE, List.of("red_wool"), List.of("bomenalles"), many);
+            JsonObject msg = message("plan-" + p, SQUARE, List.of("red_wool"), List.of("gdok"), many);
             manager.submitSet(MarkerPlanParser.parse(msg));
         }
         manager.tick(null, 0, 0);
@@ -124,14 +124,17 @@ class MarkerManagerTest {
     @Test
     void theParserRefusesNamesThatCouldInjectCommandFlags() {
         assertThrows(IllegalArgumentException.class, () -> MarkerPlanParser.parse(
-                message("x", SQUARE, List.of("red_wool -s other"), List.of("bomenalles"), new int[]{0, 0, 64, 0, 0})));
+                message("x", SQUARE, List.of("red_wool -s other"), List.of("gdok"), new int[]{0, 0, 64, 0, 0})));
         assertThrows(IllegalArgumentException.class, () -> MarkerPlanParser.parse(
-                message("x", SQUARE, List.of("red_wool"), List.of("bomenalles;/op"), new int[]{0, 0, 64, 0, 0})));
+                message("x", SQUARE, List.of("red_wool,/op"), List.of("gdok"), new int[]{0, 0, 64, 0, 0})));
         assertThrows(IllegalArgumentException.class, () -> MarkerPlanParser.parse(
-                message("x", SQUARE, List.of("red_wool"), List.of("bomenalles"), new int[]{0, 0, 64, 3, 0})),
+                message("x", SQUARE, List.of("red_wool"), List.of("gdok"), new int[]{0, 0, 64, 3, 0})),
                 "blokindex buiten de lijst");
+        assertThrows(IllegalArgumentException.class, () -> MarkerPlanParser.parse(
+                message("x", SQUARE, List.of("red_wool"), List.of("gdok"), new int[]{0, 0, 64})),
+                "marker zonder blokindex");
         MarkerPlan ok = MarkerPlanParser.parse(
-                message("x", SQUARE, List.of("minecraft:red_wool"), List.of("bomenalles"), new int[]{0, 0, Integer.MIN_VALUE, 0, 0}));
+                message("x", SQUARE, List.of("minecraft:red_wool"), List.of("gdok"), new int[]{0, 0, Integer.MIN_VALUE, 0, 0}));
         assertEquals("red_wool", ok.blocks().get(0), "namespace eraf");
         assertEquals(MarkerPlan.NO_Y, ok.markers()[0].siteY());
     }

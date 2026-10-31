@@ -2,84 +2,64 @@ package nl.geocraft.overlay.markers;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
- * The check before planting (BOMEN.md §9.5, step 2). Geotools turns <em>every</em> marker block
- * in the selection into a tree, over the full world height ({@code //expand vert}). Several
- * markers (lime, pink, blue and yellow wool, gold, diamond and emerald blocks) are also the
- * WorldEdit placeholders builders use. So before anything is run, the loaded chunks under the
- * selection are searched for the plan's marker blocks, and every one that is not a marker of
- * this plan is reported: it would become a tree too.
+ * Marker blocks in the plan area that are not part of the plan. Geotools turns <em>every</em>
+ * marker block in CVDK's selection into a tree, over the full world height. Seven gdok markers
+ * (lime, pink, blue and yellow wool, gold, diamond and emerald blocks) are also the WorldEdit
+ * placeholders builders use. So the loaded chunks under the area are searched for the block
+ * types of the paste command ({@link PasteCommands#blocks}: the placed markers), and every hit
+ * that is not a marker of this plan on its spot is foreign: it would become a tree too.
  *
- * <p>Runs over several ticks ({@link #tick}); the module's {@link BlockFinder} checks each
- * chunk section's palette first, so sections without any marker block cost almost nothing.
+ * <p>The area is the selection ring the site offers ({@link PlanArea}) plus
+ * {@link #CHECK_MARGIN}. {@link MarkerManager} runs a check over several ticks (the G menu
+ * asks for one when it opens, {@link PasteChat} before it prints the commands); the probe checks
+ * each chunk section's palette first, so sections without any target cost almost nothing.
  * Chunks that are not loaded cannot be checked; their share is reported.</p>
  */
-public final class PlantCheck {
-
-    /** World access for the check, implemented per Minecraft module. */
-    public interface BlockFinder {
-        /** Called once; the module resolves the names to its block objects. */
-        void begin(List<String> targets);
-
-        boolean isChunkLoaded(int chunkX, int chunkZ);
-
-        /** Report every block of the chunk, all heights, that is one of the targets ({@code target} = index). */
-        void scanChunk(int chunkX, int chunkZ, Hit out);
-    }
+public final class ForeignCheck {
 
     @FunctionalInterface
     public interface Hit {
         void accept(int x, int y, int z, int target);
     }
 
-    /** Stray positions kept for the renderer (the count goes on beyond this). */
-    public static final int MAX_STRAY_POSITIONS = 500;
+    /** Foreign positions kept for the renderer (the count goes on beyond this). */
+    public static final int MAX_POSITIONS = 500;
     /** Chunks per tick; a palette check per section keeps this cheap. */
     public static final int CHUNKS_PER_TICK = 48;
     /** The check ring is one metre wider than the selection, for WorldEdit's own edge rounding. */
     public static final double CHECK_MARGIN = 1.0;
 
     private final MarkerLayer layer;
-    private final BlockFinder finder;
     private final double[][] ring;
+    /** Paste blocks, alphabetical; a hit's target is an index into this list. */
     private final List<String> targets;
-    /** Target index per plan block index (-1 = not a target). */
+    /** Plan block index per target. */
+    private final int[] blockOfTarget;
     private final Map<Long, Integer> markerByColumn = new HashMap<>();
-    private final int[] targetOfBlock;
     private final long[] chunks;
     private int next = 0;
 
-    private int strays = 0;
-    private final List<Long> strayPositions = new ArrayList<>();
+    private int foreign = 0;
+    private final List<Long> positions = new ArrayList<>();
+    private final List<Integer> positionBlocks = new ArrayList<>();
     private int inPlan = 0;
     private int unloaded = 0;
 
-    public PlantCheck(MarkerLayer layer, BlockFinder finder) {
+    public ForeignCheck(MarkerLayer layer) {
         this.layer = layer;
-        this.finder = finder;
         MarkerPlan plan = layer.plan;
-        this.ring = PlantCommands.selectionRing(plan.polygon(), PlantCommands.OUTWARD + CHECK_MARGIN);
-
-        // Only blocks that markers actually use are pasted (and so matter).
-        Map<String, Integer> t = new LinkedHashMap<>();
-        targetOfBlock = new int[plan.blocks().size()];
-        java.util.Arrays.fill(targetOfBlock, -1);
+        this.ring = PlanArea.selectionRing(plan.polygon(), PlanArea.OUTWARD + CHECK_MARGIN);
+        this.targets = PasteCommands.blocks(layer);
+        this.blockOfTarget = new int[targets.size()];
+        for (int t = 0; t < targets.size(); t++) blockOfTarget[t] = plan.blocks().indexOf(targets.get(t));
         for (int i = 0; i < plan.markers().length; i++) {
             MarkerPlan.Marker m = plan.markers()[i];
-            String name = plan.blockName(m);
-            Integer ti = t.get(name);
-            if (ti == null) {
-                ti = t.size();
-                t.put(name, ti);
-            }
-            targetOfBlock[m.block()] = ti;
             markerByColumn.put(MarkerLayer.columnKey(m.x(), m.z()), i);
         }
-        this.targets = List.copyOf(t.keySet());
 
         double minX = Double.MAX_VALUE, minZ = Double.MAX_VALUE, maxX = -Double.MAX_VALUE, maxZ = -Double.MAX_VALUE;
         for (double[] p : ring) {
@@ -95,42 +75,46 @@ public final class PlantCheck {
             }
         }
         chunks = list.stream().mapToLong(Long::longValue).toArray();
-        if (!targets.isEmpty()) finder.begin(targets);
     }
 
     /** Check up to {@link #CHUNKS_PER_TICK} chunks; returns true when the check is complete. */
-    public boolean tick() {
+    public boolean tick(MarkerProbe probe) {
         if (targets.isEmpty()) {
             next = chunks.length;
             return true;
         }
+        // Every tick: the probe is shared with other checks and the scanner.
+        probe.beginTargets(targets);
         int end = Math.min(chunks.length, next + CHUNKS_PER_TICK);
         for (; next < end; next++) {
             int cx = (int) (chunks[next] >> 32), cz = (int) chunks[next];
-            if (!finder.isChunkLoaded(cx, cz)) {
+            if (!probe.isChunkLoaded(cx, cz)) {
                 unloaded++;
                 continue;
             }
-            finder.scanChunk(cx, cz, this::onHit);
+            probe.scanChunk(cx, cz, this::onHit);
         }
         return isDone();
     }
 
     private void onHit(int x, int y, int z, int target) {
-        if (!PlantCommands.inRing(x + 0.5, z + 0.5, ring)) return;
+        if (!PlanArea.contains(ring, x + 0.5, z + 0.5)) return;
         Integer i = markerByColumn.get(MarkerLayer.columnKey(x, z));
-        if (i != null && targetOfBlock[layer.plan.markers()[i].block()] == target && isMarkerHeight(i, y)) {
+        if (i != null && layer.plan.blockName(layer.plan.markers()[i]).equals(targets.get(target)) && isMarkerHeight(i, y)) {
             inPlan++;
             return;
         }
-        strays++;
-        if (strayPositions.size() < MAX_STRAY_POSITIONS) strayPositions.add(MarkerLayer.packPos(x, y, z));
+        foreign++;
+        if (positions.size() < MAX_POSITIONS) {
+            positions.add(MarkerLayer.packPos(x, y, z));
+            positionBlocks.add(blockOfTarget[target]);
+        }
     }
 
     /**
      * The marker block is at this plan marker's spot: exactly there once the scanner has seen
      * the column, anywhere in the scan range while it has not. A second marker block higher up
-     * in the same column (a builder's placeholder on a roof) is a stray.
+     * in the same column (a builder's placeholder on a roof) is foreign.
      */
     private boolean isMarkerHeight(int i, int y) {
         if (layer.status(i) == MarkerStatus.UNKNOWN) return Math.abs(y - layer.y(i)) <= MarkerScanner.RANGE;
@@ -141,17 +125,26 @@ public final class PlantCheck {
         return next >= chunks.length;
     }
 
-    /** 0..1 */
-    public double progress() {
-        return chunks.length == 0 ? 1 : (double) next / chunks.length;
+    public MarkerLayer layer() {
+        return layer;
     }
 
-    public int strays() {
-        return strays;
+    /** The paste blocks this check looks for. */
+    public List<String> targets() {
+        return targets;
     }
 
-    public long[] strayPositions() {
-        return strayPositions.stream().mapToLong(Long::longValue).toArray();
+    public int foreign() {
+        return foreign;
+    }
+
+    public long[] positions() {
+        return positions.stream().mapToLong(Long::longValue).toArray();
+    }
+
+    /** Plan block index per position. */
+    int[] positionBlocks() {
+        return positionBlocks.stream().mapToInt(Integer::intValue).toArray();
     }
 
     /** Marker blocks found on their plan spot. */
@@ -171,15 +164,11 @@ public final class PlantCheck {
         return chunks.length == 0 ? 0 : (double) unloaded / chunks.length;
     }
 
-    public MarkerLayer layer() {
-        return layer;
-    }
-
     /** Does the ring cover part of this chunk? A chunk corner inside, a ring corner inside, or crossing edges. */
     private boolean touchesRing(int cx, int cz) {
         double x0 = cx << 4, z0 = cz << 4, x1 = x0 + 16, z1 = z0 + 16;
         double[][] sq = {{x0, z0}, {x1, z0}, {x1, z1}, {x0, z1}};
-        for (double[] p : sq) if (PlantCommands.inRing(p[0], p[1], ring)) return true;
+        for (double[] p : sq) if (PlanArea.contains(ring, p[0], p[1])) return true;
         for (double[] p : ring) if (p[0] >= x0 && p[0] <= x1 && p[1] >= z0 && p[1] <= z1) return true;
         for (int i = 0, j = ring.length - 1; i < ring.length; j = i++) {
             for (int k = 0; k < 4; k++) {

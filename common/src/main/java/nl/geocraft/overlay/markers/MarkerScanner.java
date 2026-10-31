@@ -17,7 +17,7 @@ package nl.geocraft.overlay.markers;
  *       otherwise {@link MarkerStatus#TREE} (a tree was already there);</li>
  *   <li>anything else solid is not a spot; the search goes on.</li>
  * </ul>
- * <p>After planting, geotools puts the lowest trunk block where the marker was. A log gives a
+ * <p>After pasting, geotools puts the lowest trunk block where the marker was. A log gives a
  * TREE spot straight away; a fence trunk is one of the plan's trunk blocks, which the probe
  * also reports as TREE.</p>
  */

@@ -18,10 +18,11 @@ import static nl.geocraft.overlay.render.VertexSink.FACE_WEST;
  * <ul>
  *   <li><b>Ghost</b> (a spot that still needs its marker, {@link MarkerStatus#needsMarker}): a
  *       full block with the marker's texture, see-through like the overlays. Middle-click on it
- *       puts that block in your hand.</li>
+ *       puts that block in your hand, right-click puts it on the spot.</li>
  *   <li><b>Placed</b>: a thin green frame on top of the real marker block.</li>
  *   <li><b>Blocked</b>: an orange see-through box on the spot.</li>
- *   <li><b>Stray</b> (after a plant check): a red box around a marker block outside the plan.</li>
+ *   <li><b>Foreign</b> (after a {@link ForeignCheck}): a red box around a marker block in the
+ *       area that is not part of the plan; geotools would make a tree of it too.</li>
  *   <li>A tree on the spot (existing or planted): nothing.</li>
  * </ul>
  *
@@ -74,7 +75,7 @@ public final class MarkerRenderCore {
         return vertices;
     }
 
-    /** Flat-colour pass (debug quads): frames of placed markers, blocked boxes, strays. */
+    /** Flat-colour pass (debug quads): frames of placed markers, blocked boxes, foreign marker blocks. */
     public static void emitFrames(List<MarkerLayer> layers, VertexSink sink, ViewFrustum frustum,
                                   double camX, double camY, double camZ, double maxDist, int alpha) {
         double cullSq = square(maxDist + OverlayGeometry.BUCKET_CULL_MARGIN);
@@ -98,10 +99,11 @@ public final class MarkerRenderCore {
                     }
                 }
             }
-            long[] strays = l.strays();
-            if (strays.length > 0) {
+            int foreign = l.foreignPositions();
+            if (foreign > 0) {
                 sink.setColor(255, 40, 40, Math.max(boxAlpha, 110));
-                for (long p : strays) {
+                for (int k = 0; k < foreign; k++) {
+                    long p = l.foreignPos(k);
                     int sx = MarkerLayer.unpackX(p), sy = MarkerLayer.unpackY(p), sz = MarkerLayer.unpackZ(p);
                     double dx = sx - camX, dz = sz - camZ;
                     if (dx * dx + dz * dz > cullSq) continue;

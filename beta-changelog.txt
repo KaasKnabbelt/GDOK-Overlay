@@ -1,8 +1,9 @@
 # Changelog van de huidige beta, één punt per regel (regels met # tellen niet mee).
 # publishBeta zet dit in beta-info.json; /beta toont het aan de testers.
-Beta 2: Bomen planten werkt nu ook voor de standaardset (het paste-commando kreeg daar geen -s mee).
-Bomenplannen uit de GDOK viewer als markers in Minecraft: spookblokken op de juiste plek en hoogte.
-Middelklik op een spookmarker zet het juiste blok in je hand (in creative).
-G-menu: nieuwe sectie Bomenplannen met teller, Verbergen, Planten en Verwijderen.
-Bomen planten (CVDK): controleert eerst het gebied en voert daarna de WorldEdit- en geotools-commando's uit, één per seconde.
-Veiligheid: alleen gdok.nl mag met de mod verbinden, en de site kan via de mod alleen nog teleporteren.
+Beta 3: alles eenvoudiger, met één boomset (gdok).
+Rechtsklik op een spookblok zet het juiste blok neer, wat je ook vasthoudt (creative). Ingedrukt houden en rondkijken zet ze één voor één.
+Kijk je naar een spookblok, dan staat de bloknaam onderin beeld; na elke plaatsing de teller.
+Bomen planten is weg: de mod voert geen commando's meer uit. Commando in het G-menu geeft de paste-commando's in de chat.
+Klik een commando in de chat en het staat in je chatbalk; na Enter wordt de regel grijs. Ook via /gdok paste.
+Markerblokken in het gebied die niet bij het plan horen krijgen een rode rand en een waarschuwing in het G-menu en boven de commando's.
+Middelklik op een spookblok zet het blok in je hand, zoals eerder.

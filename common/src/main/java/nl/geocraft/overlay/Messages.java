@@ -51,17 +51,51 @@ public final class Messages {
         return PREFIX + "§7Een marker oppakken kan alleen in creative.";
     }
 
-    /** Actionbar tijdens het planten. */
-    public static String plantingProgress(int step, int total) {
-        return PREFIX + "§fBomen planten: commando " + step + " van " + total + "§7 · G om te stoppen";
+    /** Actionbar zolang je naar een spookblok kijkt: welk blok daar hoort (rechtsklik zet het neer). */
+    public static String markerAim(String block) {
+        return PREFIX + "§f" + block;
     }
 
-    public static String plantingDone(int total) {
-        return PREFIX + "§aBomen geplant§f: " + total + " commando's uitgevoerd. Controleer het resultaat; §7//undo§f draait het terug.";
+    /** Actionbar na een rechtsklik op een spookblok. */
+    public static String markerCounter(int placed, int total) {
+        return PREFIX + "§f" + nl(placed) + " / " + nl(total) + " geplaatst";
     }
 
-    public static String plantingStopped(int step, int total) {
-        return PREFIX + "§cBomen planten gestopt§f na " + step + " van " + total + " commando's.";
+    // Paste-commando's in de chat (Commando in het G-menu, /gdok paste). Alleen voor de speler zelf.
+
+    public static String pasteHeader(String plan) {
+        return PREFIX + "§f" + plan + ": klik een regel en druk op Enter.";
+    }
+
+    public static String pasteNothingPlaced(String plan) {
+        return PREFIX + "§f" + plan + ": nog geen geplaatste markers, dus nog geen commando.";
+    }
+
+    public static String pasteForeign(int count) {
+        return count == 1
+                ? "§cLet op: 1 markerblok in dit gebied hoort niet bij het plan."
+                : "§cLet op: " + nl(count) + " markerblokken in dit gebied horen niet bij het plan.";
+    }
+
+    public static String pasteUnloaded(int percent) {
+        return "§6Let op: " + percent + "% van het gebied is niet geladen en dus niet gecontroleerd.";
+    }
+
+    public static String pasteNoPlan() {
+        return PREFIX + "§7Er staat geen bomenplan in Minecraft.";
+    }
+
+    public static String pastePlanGone() {
+        return PREFIX + "§7Dit bomenplan staat niet meer in Minecraft.";
+    }
+
+    /** Hover-tekst van een commando-regel. */
+    public static String pasteHover() {
+        return "Klik: zet dit commando in je chatbalk";
+    }
+
+    private static String nl(int n) {
+        return String.format(java.util.Locale.ROOT, "%,d", n).replace(',', '.');
     }
 
     // Update-bericht (zie UpdateCheckCore). Tekst-delen zonder click-event; het klikbare label

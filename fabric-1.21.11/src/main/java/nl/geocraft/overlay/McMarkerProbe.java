@@ -4,6 +4,7 @@ import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.resource.language.TranslationStorage;
 import net.minecraft.client.world.ClientWorld;
 import net.minecraft.registry.Registries;
 import net.minecraft.registry.tag.BlockTags;
@@ -12,18 +13,25 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.Heightmap;
 import net.minecraft.world.chunk.ChunkSection;
 import net.minecraft.world.chunk.WorldChunk;
+import nl.geocraft.overlay.markers.ForeignCheck;
 import nl.geocraft.overlay.markers.MarkerProbe;
-import nl.geocraft.overlay.markers.PlantCheck;
 
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
- * World access for the marker scanner and the plant check (common {@code markers} package).
- * Client thread only. Yarn twin of the mojmap probe in {@code fabric-26.x}; keep them in step.
+ * World access for the marker scanner and the foreign check (common {@code markers} package),
+ * and the Dutch names of the marker blocks. Client thread only. Yarn twin of the mojmap probe in
+ * {@code fabric-26.x}; keep them in step.
  */
-final class McMarkerProbe implements MarkerProbe, PlantCheck.BlockFinder {
+final class McMarkerProbe implements MarkerProbe {
+
+    private static TranslationStorage dutch;
+    private static boolean dutchLoaded;
+    private static final Map<String, String> NAMES = new HashMap<>();
 
     private final BlockPos.Mutable pos = new BlockPos.Mutable();
     private Block[] markers = new Block[0];
@@ -38,6 +46,38 @@ final class McMarkerProbe implements MarkerProbe, PlantCheck.BlockFinder {
         Identifier id = Identifier.tryParse(name.contains(":") ? name : "minecraft:" + name);
         Block block = id == null ? null : Registries.BLOCK.get(id);
         return block == null ? Blocks.AIR : block;
+    }
+
+    /**
+     * The name of a marker block for the actionbar: Dutch ("Rode wol") from the game's nl_nl
+     * file, whatever language the client is set to; else the client's own translation; else the id.
+     */
+    static String displayName(String name) {
+        String cached = NAMES.get(name);
+        if (cached != null) return cached;
+        loadDutch();
+        Block block = resolve(name);
+        String key = block.getTranslationKey();
+        String out;
+        if (block == Blocks.AIR) out = name;
+        else if (dutch != null && dutch.hasTranslation(key)) out = dutch.get(key, name);
+        else {
+            String local = block.getName().getString();
+            out = local.equals(key) ? name : local;
+        }
+        NAMES.put(name, out);
+        return out;
+    }
+
+    /** Once, when the first plan arrives (parsing the language file takes a moment). */
+    static void loadDutch() {
+        if (dutchLoaded) return;
+        dutchLoaded = true;
+        try {
+            dutch = TranslationStorage.load(MinecraftClient.getInstance().getResourceManager(), List.of("nl_nl"), false);
+        } catch (RuntimeException e) {
+            GeoOverlayMod.LOGGER.warn("[GeoCraft Overlay] Nederlandse bloknamen niet geladen: {}", e.toString());
+        }
     }
 
     // -- MarkerProbe --------------------------------------------------
@@ -78,15 +118,15 @@ final class McMarkerProbe implements MarkerProbe, PlantCheck.BlockFinder {
         return w == null ? 64 : w.getTopY(Heightmap.Type.MOTION_BLOCKING_NO_LEAVES, x, z);
     }
 
-    // -- PlantCheck.BlockFinder ---------------------------------------
+    // -- Foreign check ------------------------------------------------
 
     @Override
-    public void begin(List<String> names) {
+    public void beginTargets(List<String> names) {
         targets = names.stream().map(McMarkerProbe::resolve).toArray(Block[]::new);
     }
 
     @Override
-    public void scanChunk(int chunkX, int chunkZ, PlantCheck.Hit out) {
+    public void scanChunk(int chunkX, int chunkZ, ForeignCheck.Hit out) {
         ClientWorld w = world();
         if (w == null) return;
         WorldChunk chunk = w.getChunk(chunkX, chunkZ);

@@ -5,16 +5,15 @@ import java.util.Set;
 
 /**
  * A marker layer as the GDOK viewer sends it: one tree plan. Every marker is a block the
- * player puts on the ground; a CVDK member later turns every marker into a tree with
- * {@code /geotools paste}. Immutable; built by {@link MarkerPlanParser}.
+ * player puts on the ground; CVDK later turns every marker into a tree with
+ * {@code /geotools paste} (see {@link PasteCommands}). Immutable; built by {@link MarkerPlanParser}.
  *
  * <p>Coordinates are Minecraft block coordinates. The polygon is the plan area in the same
  * space, as doubles ({@code [x, z]}): the site converts RD with {@code x = rdX}, {@code z = -rdY},
  * so a block column is {@code (floor(x), floor(z))}.</p>
  *
  * @param blocks      marker block ids without namespace ({@code red_wool}); markers refer to them by index
- * @param sets        tree sets ({@code bomenalles}), in the order the paste commands are issued
- * @param defaultSet  the set geotools uses without {@code -s}; its paste commands leave the flag out
+ * @param pasteFlags  the flags behind the paste command ({@code -a -r -s gdok}), from the site
  * @param trunkBlocks trunk blocks of the chosen trees: at a marker position they mean "a tree
  *                    stands here" (planted, or already there), not "something else is in the way"
  */
@@ -23,8 +22,7 @@ public record MarkerPlan(
         String label,
         double[][] polygon,
         List<String> blocks,
-        List<String> sets,
-        String defaultSet,
+        String pasteFlags,
         Set<String> trunkBlocks,
         Marker[] markers
 ) {
@@ -38,9 +36,8 @@ public record MarkerPlan(
      * @param siteY expected Y of the marker (the first free block above the ground, from the
      *              AHN), or {@link #NO_Y}; the scanner corrects it to the real surface
      * @param block index into {@link MarkerPlan#blocks()}
-     * @param set   index into {@link MarkerPlan#sets()}
      */
-    public record Marker(int x, int z, int siteY, int block, int set) {
+    public record Marker(int x, int z, int siteY, int block) {
     }
 
     public String blockName(Marker m) {

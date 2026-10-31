@@ -15,7 +15,7 @@ final class MarkerTestSupport {
     private MarkerTestSupport() {}
 
     /** Flat world: solid up to groundY (inclusive), air above; plus individual blocks. */
-    static final class FakeWorld implements MarkerProbe, PlantCheck.BlockFinder {
+    static final class FakeWorld implements MarkerProbe {
         int groundY = 63;
         final Map<Long, String> blocks = new HashMap<>();
         final Set<Long> unloaded = new HashSet<>();
@@ -63,12 +63,12 @@ final class MarkerTestSupport {
         }
 
         @Override
-        public void begin(List<String> targets) {
+        public void beginTargets(List<String> targets) {
             this.targets = targets;
         }
 
         @Override
-        public void scanChunk(int chunkX, int chunkZ, PlantCheck.Hit out) {
+        public void scanChunk(int chunkX, int chunkZ, ForeignCheck.Hit out) {
             for (Map.Entry<Long, String> e : blocks.entrySet()) {
                 long p = e.getKey();
                 int x = MarkerLayer.unpackX(p), z = MarkerLayer.unpackZ(p);
@@ -79,7 +79,10 @@ final class MarkerTestSupport {
         }
     }
 
-    /** A plan message as the site sends it; markers as {x, z, y, blockIndex, setIndex}. */
+    /**
+     * A plan message as the site sends it; markers as {x, z, y, blockIndex} or, as the site does
+     * for beta.2, {x, z, y, blockIndex, setIndex}. {@code sets} null leaves the field out.
+     */
     static JsonObject message(String id, double[][] polygon, List<String> blocks, List<String> sets, int[]... markers) {
         JsonObject msg = new JsonObject();
         msg.addProperty("type", "markers");
@@ -97,10 +100,11 @@ final class MarkerTestSupport {
         JsonArray b = new JsonArray();
         blocks.forEach(b::add);
         msg.add("blocks", b);
-        JsonArray s = new JsonArray();
-        sets.forEach(s::add);
-        msg.add("sets", s);
-        msg.addProperty("defaultSet", "bomenalles");
+        if (sets != null) {
+            JsonArray s = new JsonArray();
+            sets.forEach(s::add);
+            msg.add("sets", s);
+        }
         JsonArray trunks = new JsonArray();
         trunks.add("spruce_fence");
         msg.add("trunks", trunks);
@@ -111,8 +115,7 @@ final class MarkerTestSupport {
             a.add(m[1]);
             if (m[2] == Integer.MIN_VALUE) a.add((String) null);
             else a.add(m[2]);
-            a.add(m[3]);
-            a.add(m[4]);
+            for (int k = 3; k < m.length; k++) a.add(m[k]);
             arr.add(a);
         }
         msg.add("markers", arr);
@@ -122,6 +125,6 @@ final class MarkerTestSupport {
     static final double[][] SQUARE = {{0, 0}, {40, 0}, {40, 40}, {0, 40}};
 
     static MarkerPlan plan(int[]... markers) {
-        return MarkerPlanParser.parse(message("plan-1", SQUARE, List.of("red_wool", "lime_wool"), List.of("bomenalles", "ragratis"), markers));
+        return MarkerPlanParser.parse(message("plan-1", SQUARE, List.of("red_wool", "lime_wool"), List.of("gdok"), markers));
     }
 }

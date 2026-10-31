@@ -167,7 +167,7 @@ public class OverlayRenderer {
         occupancy.tick(cache.entries(), probe, px, pz);
     }
 
-    /** World access for the markers (scanner, plant check). */
+    /** World access for the markers (scanner, foreign check). */
     public McMarkerProbe markerProbe() {
         return markerProbe;
     }

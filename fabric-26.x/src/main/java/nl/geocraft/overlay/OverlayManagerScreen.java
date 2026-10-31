@@ -69,6 +69,7 @@ public class OverlayManagerScreen extends Screen {
     public OverlayManagerScreen(@Nullable Screen parent) {
         super(Component.literal("GDOK Overlay"));
         this.parent = parent;
+        state.checkPlans(); // vreemde markerblokken per plan, binnen een paar ticks in de rij
     }
 
     // -- Screen ---------------------------------------------------------
@@ -349,24 +350,26 @@ public class OverlayManagerScreen extends Screen {
     }
 
     /**
-     * One tree plan (marker layer, BOMEN.md §9.7): sapling icon, name, live counts, and
-     * Planten (opens the check screen) / Stop while planting, Verberg/Toon and remove.
+     * One tree plan (marker layer, BOMEN.md §9.7): sapling icon, name, live counts with the
+     * foreign marker blocks in red, and Commando (the paste commands in the chat, which opens),
+     * Verberg/Toon and remove.
      */
     private class PlanEntry extends Entry {
         private static final ItemStack ICON = new ItemStack(Items.OAK_SAPLING);
         private final OverlayMenuState.PlanRow row;
-        private final Button plant;
+        private final Button command;
         private final Button visibility;
         private final Button remove;
 
         PlanEntry(OverlayMenuState.PlanRow row) {
             this.row = row;
-            this.plant = Button.builder(Component.literal("Planten"), b -> {
-                        if (state.isPlanting(row.id())) state.stopPlanting();
-                        else if (minecraft != null) minecraft.gui.setScreen(new PlantScreen(row.id(), OverlayManagerScreen.this));
+            this.command = Button.builder(Component.literal("Commando"), b -> {
+                        state.requestPaste(row.id());
+                        state.save();
+                        if (minecraft != null) PasteLines.openChat(minecraft);
                     })
                     .size(70, 20)
-                    .tooltip(Tooltip.create(Component.literal("Controleert het gebied en laat de markers daarna door geotools in bomen omzetten (alleen CVDK).")))
+                    .tooltip(Tooltip.create(Component.literal("Zet de paste-commando's van dit plan in de chat (alleen voor jou).")))
                     .build();
             this.visibility = Button.builder(Component.literal(row.hidden() ? "Toon" : "Verberg"),
                             b -> state.setPlanHidden(row.id(), !row.hidden()))
@@ -389,10 +392,8 @@ public class OverlayManagerScreen extends Screen {
             remove.setPosition(x, y);
             x -= GAP + visibility.getWidth();
             visibility.setPosition(x, y);
-            x -= GAP + plant.getWidth();
-            plant.setPosition(x, y);
-            boolean planting = state.isPlanting(row.id());
-            plant.setMessage(Component.literal(planting ? state.plantingLabel() : "Planten"));
+            x -= GAP + command.getWidth();
+            command.setPosition(x, y);
 
             int iconX = getContentX();
             graphics.item(ICON, iconX, getContentYMiddle() - 8);
@@ -402,17 +403,23 @@ public class OverlayManagerScreen extends Screen {
             if (!name.equals(row.name()) && name.length() > 1) name = name.substring(0, name.length() - 1) + "…";
             graphics.text(font, name, textX, getContentYMiddle() - 9, row.hidden() ? GREY : WHITE);
             var counts = state.counts(row.id());
-            String line = counts == null ? "" : OverlayMenuState.countsLine(counts) + (row.hidden() ? " · verborgen" : "");
-            graphics.text(font, font.plainSubstrByWidth(line, textRoom), textX, getContentYMiddle() + 1, GREY);
+            if (counts != null) {
+                int px = textX, end = textX + textRoom;
+                for (OverlayMenuState.CountsPart part : OverlayMenuState.countsParts(counts, row.hidden())) {
+                    String t = font.plainSubstrByWidth(part.text(), Math.max(0, end - px));
+                    graphics.text(font, t, px, getContentYMiddle() + 1, part.warning() ? RED : GREY);
+                    px += font.width(t);
+                }
+            }
 
-            plant.extractRenderState(graphics, mouseX, mouseY, a);
+            command.extractRenderState(graphics, mouseX, mouseY, a);
             visibility.extractRenderState(graphics, mouseX, mouseY, a);
             remove.extractRenderState(graphics, mouseX, mouseY, a);
         }
 
         @Override
         public List<? extends GuiEventListener> children() {
-            return List.of(plant, visibility, remove);
+            return List.of(command, visibility, remove);
         }
     }
 

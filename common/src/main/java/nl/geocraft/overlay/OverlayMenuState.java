@@ -2,7 +2,7 @@ package nl.geocraft.overlay;
 
 import nl.geocraft.overlay.markers.MarkerLayer;
 import nl.geocraft.overlay.markers.MarkerManager;
-import nl.geocraft.overlay.markers.PlantRunner;
+import nl.geocraft.overlay.markers.PasteChat;
 import nl.geocraft.overlay.render.RenderMode;
 
 import java.util.ArrayList;
@@ -235,13 +235,36 @@ public final class OverlayMenuState {
         return l == null ? null : l.counts();
     }
 
-    /** "312 / 850 geplaatst · 4 geblokkeerd · 12 geplant" */
-    public static String countsLine(MarkerLayer.Counts c) {
-        StringBuilder s = new StringBuilder(nl(c.placed()) + " / " + nl(c.total()) + " geplaatst");
-        if (c.blocked() > 0) s.append(" · ").append(nl(c.blocked())).append(" geblokkeerd");
-        if (c.existing() > 0) s.append(" · ").append(nl(c.existing())).append(" al een boom");
-        if (c.planted() > 0) s.append(" · ").append(nl(c.planted())).append(" geplant");
-        return s.toString();
+    /** One piece of a plan row's counts line; a warning is drawn red. */
+    public record CountsPart(String text, boolean warning) {}
+
+    /**
+     * "312 / 850 geplaatst · 3 vreemde markerblokken · 4 geblokkeerd · 12 geplant · verborgen", in
+     * parts. The foreign marker blocks come second (red): when the row is narrow, the rest is cut.
+     */
+    public static List<CountsPart> countsParts(MarkerLayer.Counts c, boolean hidden) {
+        List<CountsPart> out = new ArrayList<>();
+        out.add(new CountsPart(nl(c.placed()) + " / " + nl(c.total()) + " geplaatst", false));
+        if (c.foreign() > 0) {
+            out.add(new CountsPart(" · " + (c.foreign() == 1 ? "1 vreemd markerblok" : nl(c.foreign()) + " vreemde markerblokken"), true));
+        }
+        StringBuilder rest = new StringBuilder();
+        if (c.blocked() > 0) rest.append(" · ").append(nl(c.blocked())).append(" geblokkeerd");
+        if (c.existing() > 0) rest.append(" · ").append(nl(c.existing())).append(" al een boom");
+        if (c.planted() > 0) rest.append(" · ").append(nl(c.planted())).append(" geplant");
+        if (hidden) rest.append(" · verborgen");
+        if (!rest.isEmpty()) out.add(new CountsPart(rest.toString(), false));
+        return out;
+    }
+
+    /** The menu opened: check every plan's area for foreign marker blocks (a few ticks). */
+    public void checkPlans() {
+        MarkerManager.getInstance().requestForeignChecks();
+    }
+
+    /** "Commando": the paste commands of this plan in the chat, after a fresh check. */
+    public void requestPaste(String id) {
+        PasteChat.getInstance().request(id);
     }
 
     public void setPlanHidden(String id, boolean hidden) {
@@ -250,23 +273,7 @@ public final class OverlayMenuState {
 
     /** The row's cross: gone in Minecraft, and the site marks the plan as no longer sent. */
     public void removePlan(String id) {
-        if (id.equals(PlantRunner.getInstance().layerId())) PlantRunner.getInstance().stop();
         MarkerManager.getInstance().removeByPlayer(id);
-    }
-
-    /** Is this plan being planted right now? */
-    public boolean isPlanting(String id) {
-        PlantRunner r = PlantRunner.getInstance();
-        return r.isRunning() && id.equals(r.layerId());
-    }
-
-    public String plantingLabel() {
-        PlantRunner r = PlantRunner.getInstance();
-        return "Stop (" + r.step() + "/" + r.total() + ")";
-    }
-
-    public void stopPlanting() {
-        PlantRunner.getInstance().stop();
     }
 
     private static String nl(int n) {

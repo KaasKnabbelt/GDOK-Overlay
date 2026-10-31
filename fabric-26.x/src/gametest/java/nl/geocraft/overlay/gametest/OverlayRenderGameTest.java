@@ -9,9 +9,9 @@ import nl.geocraft.overlay.OverlayConfig;
 import nl.geocraft.overlay.OverlayData;
 import nl.geocraft.overlay.OverlayManager;
 import nl.geocraft.overlay.OverlayManagerScreen;
-import nl.geocraft.overlay.PlantScreen;
+import nl.geocraft.overlay.PasteLines;
 import nl.geocraft.overlay.markers.MarkerManager;
-import nl.geocraft.overlay.markers.PlantFlow;
+import nl.geocraft.overlay.markers.PasteChat;
 import nl.geocraft.overlay.render.RenderMode;
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
@@ -303,8 +303,8 @@ public class OverlayRenderGameTest implements FabricClientGameTest {
             assertThat(sideCyan > 0.5, "marker is geen vol blok in fullblock-modus: " + sideCyan);
 
             // 14. Bomenplan (protocol 3, BOMEN.md §9): markers via de echte bridge, de hoogte
-            //     gecorrigeerd naar het echte maaiveld, een geplaatste marker, markerblokken buiten
-            //     het plan in de controle vooraf, middelklik, en een vreemde origin die geweigerd wordt.
+            //     gecorrigeerd naar het echte maaiveld, een geplaatste marker, vreemde markerblokken,
+            //     middel- en rechtsklik, de paste-regels in de chat, en een vreemde origin die geweigerd wordt.
             ctx.runOnClient(mc -> OverlayManager.getInstance().resetSession());
             BridgeListener listener = BridgeListener.open(null);
             assertThat(listener.hello().contains("\"protocol\":3") && listener.hello().contains("\"markers\""),
@@ -332,21 +332,19 @@ public class OverlayRenderGameTest implements FabricClientGameTest {
             String progress = listener.waitFor("\"action\":\"progress\"", "\"placed\":1");
             assertThat(progress != null, "geen voortgang met placed=1 naar de site");
 
-            PlantFlow flow = ctx.computeOnClient(mc -> new PlantFlow("plan-gametest", GeoOverlayMod.getRenderer().markerProbe()));
-            ctx.waitFor(mc -> {
-                flow.tick();
-                return !flow.isChecking();
-            }, 200);
-            String flowText = ctx.computeOnClient(mc -> flow.lines().stream().map(PlantFlow.Line::text).toList().toString());
-            LOGGER.info("[gametest] plant-controle: {}", flowText);
-            assertThat(flowText.contains("1 markerblok in het gebied hoort niet bij dit plan"),
-                    "de losse marker boven het maaiveld is niet gevonden: " + flowText);
-            ctx.runOnClient(mc -> mc.gui.setScreen(new PlantScreen("plan-gametest", null)));
-            ctx.waitTicks(20);
-            ctx.takeScreenshot("14b-plant-screen");
+            // Vreemde markerblokken: de losse wol boven het maaiveld hoort niet bij het plan.
+            assertThat(listener.hello().contains("\"place\"") && listener.hello().contains("\"paste\"")
+                    && !listener.hello().contains("\"plant\""), "hello zonder place/paste: " + listener.hello());
+            ctx.runOnClient(mc -> MarkerManager.getInstance().requestForeignCheck("plan-gametest"));
+            ctx.waitFor(mc -> MarkerManager.getInstance().get("plan-gametest").checks() > 0, 200);
+            int foreign = ctx.computeOnClient(mc -> MarkerManager.getInstance().get("plan-gametest").counts().foreign());
+            LOGGER.info("[gametest] vreemde markerblokken = {}", foreign);
+            assertThat(foreign == 1, "de losse marker boven het maaiveld is niet gevonden: " + foreign);
+            ctx.waitTicks(MarkerManager.REPORT_INTERVAL + 2); // voortgang gaat hooguit eens per 10 ticks naar de site
+            assertThat(listener.waitFor("\"action\":\"progress\"", "\"foreign\":1") != null, "geen foreign=1 naar de site");
             ctx.runOnClient(mc -> mc.gui.setScreen(new OverlayManagerScreen()));
             ctx.waitTicks(10);
-            ctx.takeScreenshot("14c-menu-bomenplan");
+            ctx.takeScreenshot("14b-menu-bomenplan");
             ctx.runOnClient(mc -> mc.gui.setScreen(null));
 
             // Middelklik op een spookmarker: het markerblok in de hand (creative).
@@ -359,7 +357,56 @@ public class OverlayRenderGameTest implements FabricClientGameTest {
             boolean picked = ctx.computeOnClient(mc -> "magenta_wool".equals(net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(mc.player.getMainHandItem().getItem()).getPath()));
             LOGGER.info("[gametest] middelklik op spookmarker: magenta wol in de hand = {}", picked);
             assertThat(picked, "middelklik zette de marker niet in de hand");
+
+            // Rechtsklik op een spookmarker: het markerblok op zijn plek, ook met steen in de hand.
+            sp.getServer().runCommand("clear @a");
+            sp.getServer().runCommand("item replace entity @a hotbar.0 with minecraft:stone");
+            ctx.runOnClient(mc -> mc.player.getInventory().setSelectedSlot(0));
+            ctx.waitTicks(10);
+            ctx.getInput().pressKey(options -> options.keyUse);
+            ctx.waitTicks(10);
+            String placedBlock = blockAt(sp, 5, OVERLAY_Y, 2), above = blockAt(sp, 5, OVERLAY_Y + 1, 2);
+            int placedCount = ctx.computeOnClient(mc -> MarkerManager.getInstance().get("plan-gametest").counts().placed());
+            LOGGER.info("[gametest] rechtsklik op spookmarker: {} (erboven {}), geplaatst = {}", placedBlock, above, placedCount);
+            assertThat("magenta_wool".equals(placedBlock) && "air".equals(above), "rechtsklik zette niet de marker neer: " + placedBlock + " / " + above);
+            assertThat(placedCount == 2, "de teller ging niet omhoog: " + placedCount);
+            assertThat(ctx.computeOnClient(mc -> "magenta_wool".equals(net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(mc.player.getMainHandItem().getItem()).getPath())), "na de rechtsklik geen marker in de hand");
+
+            // Ingedrukt houden: één blok per spookmarker, niets erbovenop als de rechtsklik blijft.
+            sp.getServer().runCommand("tp @a 10.5 " + OVERLAY_Y + " 1.5 0 25");
+            ctx.waitTicks(10);
+            ctx.getInput().holdKey(options -> options.keyUse);
+            ctx.waitTicks(16);
+            ctx.getInput().releaseKey(options -> options.keyUse);
+            ctx.waitTicks(5);
+            String held = blockAt(sp, 10, OVERLAY_Y, 2), heldAbove = blockAt(sp, 10, OVERLAY_Y + 1, 2);
+            LOGGER.info("[gametest] rechtsklik vastgehouden: {} (erboven {})", held, heldAbove);
+            assertThat("magenta_wool".equals(held) && "air".equals(heldAbove), "vasthouden: " + held + " / " + heldAbove);
             sp.getServer().runCommand("gamemode spectator @a");
+
+            // Paste-commando's in de chat (/gdok paste), en grijs na het versturen.
+            String paste = "/geotools paste magenta_wool -a -r -s gdok";
+            ctx.getInput().pressKey(GLFW.GLFW_KEY_F1); // HUD weer aan, voor de chat
+            ctx.runOnClient(mc -> mc.player.connection.sendCommand("gdok paste"));
+            ctx.waitFor(mc -> !PasteChat.getInstance().isPending() && !PasteLines.lineColors(paste).isEmpty(), 200);
+            String chatText = ctx.computeOnClient(mc -> PasteChat.lines(MarkerManager.getInstance().get("plan-gametest"))
+                    .stream().map(PasteChat.Line::text).toList().toString());
+            LOGGER.info("[gametest] paste-regels: {}", chatText);
+            assertThat(chatText.contains("Let op: 1 markerblok in dit gebied hoort niet bij het plan.") && chatText.contains(paste),
+                    "paste-regels kloppen niet: " + chatText);
+            assertThat(ctx.computeOnClient(mc -> PasteLines.lineColors(paste)).equals(java.util.List.of(PasteChat.COMMAND_COLOR)),
+                    "commando-regel niet wit");
+            ctx.runOnClient(mc -> mc.gui.setScreen(new net.minecraft.client.gui.screens.ChatScreen("", false)));
+            ctx.waitTicks(10);
+            ctx.takeScreenshot("14c-paste-chat");
+            ctx.runOnClient(mc -> mc.player.connection.sendCommand(paste.substring(1)));
+            ctx.waitTicks(10);
+            java.util.List<Integer> after = ctx.computeOnClient(mc -> PasteLines.lineColors(paste));
+            LOGGER.info("[gametest] kleur na versturen: {}", after);
+            assertThat(after.equals(java.util.List.of(PasteChat.DONE_COLOR)), "verstuurde regel niet grijs: " + after);
+            ctx.takeScreenshot("14d-paste-chat-verstuurd");
+            ctx.runOnClient(mc -> mc.gui.setScreen(null));
+            ctx.getInput().pressKey(GLFW.GLFW_KEY_F1);
 
             // Een vreemde webpagina mag niet verbinden.
             BridgeListener evil = BridgeListener.tryOpen("https://evil.example");
@@ -377,7 +424,7 @@ public class OverlayRenderGameTest implements FabricClientGameTest {
     static String markersMessage(String id, int siteY) {
         StringBuilder sb = new StringBuilder("{\"type\":\"markers\",\"action\":\"set\",\"id\":\"").append(id)
                 .append("\",\"label\":\"Gametest-plan\",\"polygon\":[[-2,-2],[18,-2],[18,18],[-2,18]],")
-                .append("\"blocks\":[\"magenta_wool\"],\"sets\":[\"bomenalles\"],\"defaultSet\":\"bomenalles\",\"trunks\":[],\"markers\":[");
+                .append("\"blocks\":[\"magenta_wool\"],\"sets\":[\"gdok\"],\"trunks\":[],\"paste\":{\"flags\":\"-a -r -s gdok\"},\"markers\":[");
         boolean first = true;
         for (int x = 0; x < 16; x++) {
             for (int z = 0; z < 16; z++) {
@@ -387,6 +434,11 @@ public class OverlayRenderGameTest implements FabricClientGameTest {
             }
         }
         return sb.append("]}").toString();
+    }
+
+    /** Block id (without namespace) at a position, as the server sees it. */
+    private static String blockAt(TestSingleplayerContext sp, int x, int y, int z) {
+        return sp.getServer().computeOnServer(server -> net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(server.overworld().getBlockState(new net.minecraft.core.BlockPos(x, y, z)).getBlock()).getPath());
     }
 
     /** A bridge connection that also records what the mod sends (hello, progress). */

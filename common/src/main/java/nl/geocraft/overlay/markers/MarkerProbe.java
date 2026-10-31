@@ -4,9 +4,9 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * World access for the marker scanner, implemented per Minecraft module. The scanner in
- * {@code common/} only sees these coarse block kinds, so the height and status logic is the
- * same for every Minecraft version and testable without a game.
+ * World access for the marker scanner and the foreign check, implemented per Minecraft module.
+ * The code in {@code common/} only sees these coarse block kinds and hits, so the height, status
+ * and check logic is the same for every Minecraft version and testable without a game.
  */
 public interface MarkerProbe {
 
@@ -39,4 +39,13 @@ public interface MarkerProbe {
 
     /** First free Y above the surface in this column (heightmap), for markers without a site Y. */
     int surfaceY(int x, int z);
+
+    /** The block types {@link ForeignCheck} looks for; the module resolves them to its block objects. */
+    void beginTargets(List<String> blocks);
+
+    /**
+     * Report every block of the chunk, all heights, that is one of the targets ({@code target} =
+     * index into the list given to {@link #beginTargets}). Check each section's palette first.
+     */
+    void scanChunk(int chunkX, int chunkZ, ForeignCheck.Hit out);
 }
