@@ -2,6 +2,7 @@ package nl.geocraft.overlay;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import nl.geocraft.overlay.markers.MarkerManager;
 import nl.geocraft.overlay.render.RenderMode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,6 +34,12 @@ public class OverlayConfig {
     private boolean markerSeeThrough = true;
     /** Bomenplannen: de balk bovenin met hoeveel er nog te doen is. */
     private boolean markerHud = true;
+    /**
+     * Bomenplannen: een rechtsklik op een spookblok zet het markerblok van het plan neer. Uit
+     * (1.2.1): je zet zelf een blok naar keuze neer, voor wie een andere bomenpack gebruikt; een
+     * los blok op de plek telt dan als geplaatst (MarkerScanner).
+     */
+    private boolean markerPlace = true;
     private volatile RenderMode renderMode = RenderMode.FULLBLOCK;
     /** The one-time "druk op G" chat hint has been shown (persisted, so it really is one-time). */
     private volatile boolean gKeyHintShown = false;
@@ -114,6 +121,15 @@ public class OverlayConfig {
         this.markerHud = value;
     }
 
+    public boolean isMarkerPlace() {
+        return markerPlace;
+    }
+
+    public void setMarkerPlace(boolean value) {
+        this.markerPlace = value;
+        MarkerManager.getInstance().setOwnBlocks(!value);
+    }
+
     public boolean isAdvancedMenu() {
         return advancedMenu;
     }
@@ -145,6 +161,7 @@ public class OverlayConfig {
                 advancedMenu = data.advancedMenu;
                 markerSeeThrough = data.markerSeeThrough;
                 markerHud = data.markerHud;
+                setMarkerPlace(data.markerPlace);
                 OverlayManager.getInstance().setSameLevel(sameLevel);
             }
         } catch (IOException | RuntimeException e) {
@@ -163,6 +180,7 @@ public class OverlayConfig {
             data.advancedMenu = advancedMenu;
             data.markerSeeThrough = markerSeeThrough;
             data.markerHud = markerHud;
+            data.markerPlace = markerPlace;
             Path path = configPath();
             Files.createDirectories(path.getParent());
             Files.writeString(path, GSON.toJson(data));
@@ -180,5 +198,6 @@ public class OverlayConfig {
         boolean advancedMenu = false;
         boolean markerSeeThrough = true;
         boolean markerHud = true;
+        boolean markerPlace = true;
     }
 }

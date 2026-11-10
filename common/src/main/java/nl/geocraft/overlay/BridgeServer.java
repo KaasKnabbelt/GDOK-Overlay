@@ -6,6 +6,7 @@ import com.google.gson.JsonParser;
 import nl.geocraft.overlay.markers.MarkerLayer;
 import nl.geocraft.overlay.markers.MarkerManager;
 import nl.geocraft.overlay.markers.MarkerPlanParser;
+import nl.geocraft.overlay.markers.PlanShare;
 import org.java_websocket.WebSocket;
 import org.java_websocket.drafts.Draft;
 import org.java_websocket.exceptions.InvalidDataException;
@@ -52,6 +53,11 @@ import java.util.regex.Pattern;
  * ({@link #sendGoto}). Older mods ignore {@code site/hello}; an older site never sends it, and
  * then {@code /gdok} opens the browser.</p>
  *
+ * <p>Since 1.2.1 a viewer that names {@code share} can be asked for a link to the paste commands
+ * of a plan: {@code markers/share {id}} from the mod, answered with
+ * {@code markers/shared {id, url}} or {@code {id, error}} ({@link PlanShare}). The mod names
+ * {@code share} in its own hello too.</p>
+ *
  * <h2>Security</h2>
  * <p>Any web page can try to open {@code ws://127.0.0.1:4945}. The handshake therefore only
  * accepts the GDOK origins ({@link #isAllowedOrigin}), and {@code command/run} only runs
@@ -62,7 +68,7 @@ public class BridgeServer extends WebSocketServer {
     /** Bumped when the site needs to know about new message types; announced in {@code hello}. */
     public static final int PROTOCOL = 3;
     /** What this mod can do beyond the overlays; the site shows its buttons only for these. */
-    public static final List<String> FEATURES = List.of("markers", "place", "paste");
+    public static final List<String> FEATURES = List.of("markers", "place", "paste", "share");
 
     private static final Pattern ALLOWED_ORIGIN = Pattern.compile(
             "https://(www\\.)?gdok\\.nl|http://(localhost|127\\.0\\.0\\.1|\\[::1])(:\\d{1,5})?");
@@ -76,6 +82,8 @@ public class BridgeServer extends WebSocketServer {
     private static BridgeServer instance;
     /** Connections whose viewer understands {@code view/goto} (it said so in {@code site/hello}). */
     private final Set<WebSocket> gotoViewers = ConcurrentHashMap.newKeySet();
+    /** Connections whose viewer can make a share link ({@code share} in {@code site/hello}). */
+    private final Set<WebSocket> shareViewers = ConcurrentHashMap.newKeySet();
 
     /**
      * Only these pages may connect: gdok.nl, and localhost/127.0.0.1 for development. A client
@@ -157,6 +165,7 @@ public class BridgeServer extends WebSocketServer {
     @Override
     public void onClose(WebSocket conn, int code, String reason, boolean remote) {
         gotoViewers.remove(conn);
+        shareViewers.remove(conn);
         LOGGER.info("[GeoCraft Overlay] GDOK verbinding verbroken");
     }
 
@@ -181,6 +190,29 @@ public class BridgeServer extends WebSocketServer {
             } catch (RuntimeException e) {
                 // The tab closed between isOpen and send; the next viewer, or the browser, then.
                 LOGGER.debug("[GeoCraft Overlay] goto niet verstuurd: {}", e.getMessage());
+            }
+        }
+        return sent;
+    }
+
+    /**
+     * Ask the open viewers for a link to the paste commands of this plan ({@link PlanShare}).
+     * False when no viewer is connected that can (none open, or an older site).
+     */
+    public boolean requestShare(String id) {
+        JsonObject msg = new JsonObject();
+        msg.addProperty("type", "markers");
+        msg.addProperty("action", "share");
+        msg.addProperty("id", id);
+        String json = msg.toString();
+        boolean sent = false;
+        for (WebSocket conn : shareViewers) {
+            if (!conn.isOpen()) continue;
+            try {
+                conn.send(json);
+                sent = true;
+            } catch (RuntimeException e) {
+                LOGGER.debug("[GeoCraft Overlay] share niet verstuurd: {}", e.getMessage());
             }
         }
         return sent;
@@ -253,6 +285,8 @@ public class BridgeServer extends WebSocketServer {
                 switch (action) {
                     case "set" -> handleMarkersSet(msg);
                     case "remove" -> MarkerManager.getInstance().submitRemove(msg.get("id").getAsString());
+                    case "shared" -> PlanShare.getInstance().submitAnswer(
+                            msg.get("id").getAsString(), optString(msg, "url"), optString(msg, "error"));
                 }
             }
         } catch (Exception e) {
@@ -396,14 +430,22 @@ public class BridgeServer extends WebSocketServer {
     }
 
     private void handleSiteHello(WebSocket conn, JsonObject msg) {
-        boolean go = false;
+        boolean go = false, share = false;
         if (msg.has("features") && msg.get("features").isJsonArray()) {
             for (var f : msg.getAsJsonArray("features")) {
-                if (f.isJsonPrimitive() && "goto".equals(f.getAsString())) go = true;
+                if (!f.isJsonPrimitive()) continue;
+                if ("goto".equals(f.getAsString())) go = true;
+                if ("share".equals(f.getAsString())) share = true;
             }
         }
         if (go) gotoViewers.add(conn);
         else gotoViewers.remove(conn);
+        if (share) shareViewers.add(conn);
+        else shareViewers.remove(conn);
+    }
+
+    private static String optString(JsonObject msg, String key) {
+        return msg.has(key) && msg.get(key).isJsonPrimitive() ? msg.get(key).getAsString() : null;
     }
 
     public void broadcastMarkerProgress(MarkerLayer layer) {

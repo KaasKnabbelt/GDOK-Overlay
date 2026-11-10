@@ -65,6 +65,30 @@ final class ScreenshotProbe {
         return total == 0 ? 0 : (double) hits / total;
     }
 
+    /**
+     * The first and last pixel row (in the columns fx0..fx1 of the image) of which at least half
+     * the pixels match, or null when there is none. For the plan's bar at the top: where it
+     * stands and how thick it is, whatever the GUI scale.
+     */
+    static int[] rowsOf(Path png, double fx0, double fx1, PixelPredicate predicate) {
+        BufferedImage img = read(png);
+        int w = img.getWidth(), h = img.getHeight();
+        int x0 = (int) (w * fx0), x1 = (int) (w * fx1);
+        int first = -1, last = -1;
+        for (int y = 0; y < h; y++) {
+            int hits = 0;
+            for (int x = x0; x < x1; x++) {
+                int rgb = img.getRGB(x, y);
+                if (predicate.test((rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255)) hits++;
+            }
+            if (hits * 2 >= x1 - x0) {
+                if (first < 0) first = y;
+                last = y;
+            }
+        }
+        return first < 0 ? null : new int[]{first, last};
+    }
+
     /** Fraction of central pixels that differ noticeably between two screenshots. */
     static double changedFraction(Path a, Path b) {
         BufferedImage ia = read(a), ib = read(b);

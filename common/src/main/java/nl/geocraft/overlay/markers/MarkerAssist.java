@@ -74,6 +74,28 @@ public final class MarkerAssist {
         return left > 0 && left <= BEACON_MAX_LEFT;
     }
 
+    /** Vanilla's boss bars: the first bar at y 12 (title 9 above it), 19 apart, down to a third of the screen. */
+    public static final int BOSS_BAR_STEP = 19;
+
+    /**
+     * How far down the plan's bar goes to stay clear of the server's boss bars (1.2.1: GeoCraft
+     * shows "Welkom op: GeoCraft.nl" there, and the two were drawn over each other). Vanilla
+     * draws a bar, steps {@link #BOSS_BAR_STEP} down and stops once that passes a third of the
+     * screen height; the plan's bar takes the next slot.
+     *
+     * @param bossBars     boss bars the client knows of
+     * @param scaledHeight height of the screen in GUI pixels
+     */
+    public static int barOffset(int bossBars, int scaledHeight) {
+        int y = 12, shown = 0;
+        while (shown < bossBars) {
+            shown++;
+            y += BOSS_BAR_STEP;
+            if (y >= scaledHeight / 3) break;
+        }
+        return shown * BOSS_BAR_STEP;
+    }
+
     /** Above the bar (legacy section codes, as in Messages): "St. Anna: nog 26 van 73". */
     public static String barTitle(Status s) {
         if (s.todo() == 0) return "§f" + s.label() + "§7: alles staat";

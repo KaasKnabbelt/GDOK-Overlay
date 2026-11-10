@@ -7,6 +7,7 @@ import net.minecraft.text.HoverEvent;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
 import nl.geocraft.overlay.markers.PasteChat;
+import nl.geocraft.overlay.markers.PlanShare;
 
 import java.util.List;
 
@@ -56,6 +57,43 @@ public final class PasteLines {
 
     static void reset() {
         PRINTED.clear();
+        lastShare = null;
+    }
+
+    // -- "Deel" in the G menu (common PlanShare) ----------------------------
+
+    private static String lastShare;
+
+    /** How {@link PlanShare} shows things: a line for the player, or the link text in the chat box. */
+    static final PlanShare.Ui SHARE_UI = new PlanShare.Ui() {
+        @Override
+        public void message(String text) {
+            MinecraftClient client = MinecraftClient.getInstance();
+            if (client.player != null) client.inGameHud.getChatHud().addMessage(Text.literal(text));
+        }
+
+        /**
+         * Into the chat box, ready to send. With another screen open (the player went on in the
+         * meantime) a line he can click instead: closing his screen for him would be rude.
+         */
+        @Override
+        public void chat(String text) {
+            MinecraftClient client = MinecraftClient.getInstance();
+            if (client.player == null) return;
+            lastShare = text;
+            if (client.currentScreen == null || client.currentScreen instanceof ChatScreen) {
+                client.setScreen(new ChatScreen(text, false));
+                return;
+            }
+            client.inGameHud.getChatHud().addMessage(Text.literal(Messages.shareReady()).styled(style -> style
+                    .withClickEvent(new ClickEvent.SuggestCommand(text))
+                    .withHoverEvent(new HoverEvent.ShowText(Text.literal(text)))));
+        }
+    };
+
+    /** Diagnostics (gametests): the last text "Deel" put in the chat box, or null. */
+    public static String lastShare() {
+        return lastShare;
     }
 
     /** Diagnostics (gametests): the colour of each printed line of this command, oldest first. */

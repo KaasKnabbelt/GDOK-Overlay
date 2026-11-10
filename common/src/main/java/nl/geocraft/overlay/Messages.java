@@ -20,8 +20,24 @@ public final class Messages {
     // Actionbar-berichten (boven de hotbar)
 
     public static String overlayYDelta(int delta) {
+        return overlayYDelta(delta, 0, 1);
+    }
+
+    /**
+     * Page Up/Down. Vastgezette lagen schuiven niet mee; dat staat erbij, want een laag raakt ook
+     * vast door de hoogteknop van zijn rij (gemeld op 10 november 2026: "Page Up doet niets").
+     *
+     * @param pinned vastgezette lagen (blijven staan)
+     * @param moved  lagen die wel meeschoven
+     */
+    public static String overlayYDelta(int delta, int pinned, int moved) {
         String sign = delta > 0 ? "+" : "";
-        return PREFIX + "§fOverlay Y " + sign + delta;
+        if (pinned > 0 && moved == 0) {
+            return PREFIX + (pinned == 1 ? "§7De laag staat vast en blijft staan (G-menu: Vast)." : "§7Alle " + pinned + " lagen staan vast en blijven staan (G-menu: Vast).");
+        }
+        String text = PREFIX + "§fOverlay Y " + sign + delta;
+        if (pinned > 0) text += " §7· " + (pinned == 1 ? "1 vastgezette laag blijft staan" : pinned + " vastgezette lagen blijven staan");
+        return text;
     }
 
     public static String terrainLoading() {
@@ -87,6 +103,30 @@ public final class Messages {
 
     public static String pastePlanGone() {
         return PREFIX + "§7Dit bomenplan staat niet meer in Minecraft.";
+    }
+
+    // Deel in het G-menu (PlanShare): een link naar de paste-commando's in je chatbalk, voor CVDK.
+
+    /** Wat er in de chatbalk komt; de speler drukt zelf op Enter (of past het eerst aan). */
+    public static String shareChatText(String plan, String url) {
+        return "Bomenplan " + plan + ", paste-commando's: " + url;
+    }
+
+    public static String shareNeedsViewer() {
+        return PREFIX + "§7Open de GDOK-viewer in je browser (gdok.nl/viewer): die maakt de link.";
+    }
+
+    public static String shareTimeout() {
+        return PREFIX + "§7De viewer gaf geen link. Probeer het nog eens.";
+    }
+
+    public static String shareFailed(String reason) {
+        return PREFIX + "§cLink maken mislukt" + (reason == null || reason.isEmpty() ? "." : ": " + reason);
+    }
+
+    /** De link staat klaar, maar de chat kon niet open (er stond een ander scherm open). */
+    public static String shareReady() {
+        return PREFIX + "§fDe link staat klaar: klik om hem in je chatbalk te zetten.";
     }
 
     /** Hover-tekst van een commando-regel. */

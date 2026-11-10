@@ -87,10 +87,10 @@ public final class MarkerRenderCore {
                 for (int k = l.bucketStart(b); k < l.bucketEnd(b); k++) {
                     int i = l.markerAt(k);
                     MarkerStatus s = l.status(i);
-                    if (s != MarkerStatus.PLACED && s != MarkerStatus.BLOCKED) continue;
+                    if (!s.isPlaced() && s != MarkerStatus.BLOCKED) continue;
                     MarkerPlan.Marker m = l.plan.markers()[i];
                     float x = (float) (m.x() - camX), y = (float) (l.y(i) - camY), z = (float) (m.z() - camZ);
-                    if (s == MarkerStatus.PLACED) {
+                    if (s.isPlaced()) {
                         sink.setColor(85, 255, 85, alpha);
                         topFrame(sink, x, y + 1f + OverlayGeometry.Y_OFFSET * 2, z);
                     } else {

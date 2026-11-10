@@ -101,6 +101,93 @@ class MarkerScannerTest {
         assertEquals(MarkerStatus.PLANTED, l.status(0));
     }
 
+    // -- "Rechtsklik plaatst" uit: een los blok van de speler telt (1.2.1) ----------
+
+    private MarkerLayer scanOwn(int siteY) {
+        MarkerLayer layer = new MarkerLayer(plan(new int[]{5, 5, siteY, 0, 0}));
+        world.beginPlan(layer.plan.blocks(), layer.plan.trunkBlocks());
+        MarkerScanner.scan(layer, 0, world, buf, true);
+        return layer;
+    }
+
+    @Test
+    void ownBlocksOffIsTheDefault() {
+        world.set(5, 64, 5, "white_wool");
+        MarkerLayer l = scanOne(64);
+        assertEquals(MarkerStatus.EMPTY, l.status(0), "zonder de stand: de plek schuift omhoog, zoals altijd");
+        assertEquals(65, l.y(0));
+    }
+
+    @Test
+    void aLooseBlockOnTheSpotIsThePlayersOwn() {
+        world.set(5, 64, 5, "white_wool");
+        MarkerLayer l = scanOwn(64);
+        assertEquals(MarkerStatus.OWN, l.status(0));
+        assertEquals(64, l.y(0), "het spookblok springt niet bovenop het eigen blok");
+    }
+
+    @Test
+    void theOwnBlockIsFoundWhenTheSiteIsOffEitherWay() {
+        world.set(5, 64, 5, "white_wool");
+        MarkerLayer high = scanOwn(65); // site een blok te hoog: de plek erboven lijkt vrij
+        assertEquals(MarkerStatus.OWN, high.status(0));
+        assertEquals(64, high.y(0));
+        MarkerLayer low = scanOwn(62); // site te laag: eerst door de grond omhoog
+        assertEquals(MarkerStatus.OWN, low.status(0));
+        assertEquals(64, low.y(0));
+    }
+
+    @Test
+    void higherGroundIsNotAnOwnBlock() {
+        // Het maaiveld ligt hier een blok hoger dan de site dacht: buren op dezelfde hoogte.
+        for (int x = 3; x <= 7; x++) for (int z = 3; z <= 7; z++) world.set(x, 64, z, "grass_block");
+        MarkerLayer l = scanOwn(64);
+        assertEquals(MarkerStatus.EMPTY, l.status(0));
+        assertEquals(65, l.y(0));
+    }
+
+    @Test
+    void aBlockAgainstAWallIsNotLoose() {
+        world.set(5, 64, 5, "stone");
+        world.set(6, 64, 5, "stone"); // een muurtje van twee
+        MarkerLayer l = scanOwn(64);
+        assertEquals(MarkerStatus.EMPTY, l.status(0));
+        assertEquals(65, l.y(0));
+    }
+
+    @Test
+    void thePlansOwnMarkerStaysPlacedInThatMode() {
+        world.set(5, 64, 5, "red_wool");
+        assertEquals(MarkerStatus.PLACED, scanOwn(64).status(0));
+    }
+
+    @Test
+    void freeGroundStaysEmptyInThatMode() {
+        MarkerLayer l = scanOwn(64);
+        assertEquals(MarkerStatus.EMPTY, l.status(0));
+        assertEquals(64, l.y(0));
+    }
+
+    @Test
+    void anOwnBlockCountsAsPlacedAndBecomesPlanted() {
+        MarkerLayer l = new MarkerLayer(plan(new int[]{5, 5, 64, 0, 0}, new int[]{9, 9, 64, 1, 0}));
+        world.beginPlan(l.plan.blocks(), l.plan.trunkBlocks());
+        world.set(5, 64, 5, "white_wool");
+        MarkerScanner.scan(l, 0, world, buf, true);
+        MarkerScanner.scan(l, 1, world, buf, true);
+        l.recount();
+        assertEquals(1, l.counts().placed());
+        assertEquals(1, l.counts().toPlace());
+        assertEquals(0, l.todoPerBlock()[0], "het eigen blok telt als gedaan");
+        assertEquals(java.util.List.of(), PasteCommands.blocks(l), "maar hoort niet in het paste-commando van gdok");
+
+        // Geplakt met een eigen bomenpack: de stam staat waar het blok stond.
+        world.set(5, 64, 5, "oak_log");
+        world.set(5, 65, 5, "oak_log");
+        MarkerScanner.scan(l, 0, world, buf, true);
+        assertEquals(MarkerStatus.PLANTED, l.status(0));
+    }
+
     @Test
     void anUnloadedChunkKeepsTheLastStatus() {
         world.unloaded.add(MarkerLayer.chunkKey(0, 0));

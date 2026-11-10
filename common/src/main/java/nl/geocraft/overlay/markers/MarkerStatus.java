@@ -13,7 +13,12 @@ public enum MarkerStatus {
     /** A trunk or leaves on the spot while the marker was never seen: a tree already stands there. */
     TREE,
     /** A trunk where the marker stood before: geotools turned it into a tree. */
-    PLANTED;
+    PLANTED,
+    /**
+     * A loose block of the player's own choice on the spot. Only found while "Rechtsklik plaatst"
+     * is off (see {@link MarkerScanner}); counts as placed, but is not part of the paste commands.
+     */
+    OWN;
 
     private static final MarkerStatus[] VALUES = values();
 
@@ -24,5 +29,10 @@ public enum MarkerStatus {
     /** Still needs a marker block from the player. */
     public boolean needsMarker() {
         return this == UNKNOWN || this == EMPTY;
+    }
+
+    /** A block for this tree stands on the spot: the plan's marker, or the player's own block. */
+    public boolean isPlaced() {
+        return this == PLACED || this == OWN;
     }
 }

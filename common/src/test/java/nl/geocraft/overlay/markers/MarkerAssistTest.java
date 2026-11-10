@@ -58,6 +58,17 @@ class MarkerAssistTest {
     }
 
     @Test
+    void theBarGoesBelowTheServersBossBars() {
+        assertEquals(0, MarkerAssist.barOffset(0, 240), "geen bossbar: bovenaan, zoals altijd");
+        assertEquals(19, MarkerAssist.barOffset(1, 240), "onder de welkomstbalk van GeoCraft");
+        assertEquals(38, MarkerAssist.barOffset(2, 240));
+        // Vanilla tekent tot een derde van het scherm: op 240 hoog vier balken (12, 31, 50, 69).
+        assertEquals(76, MarkerAssist.barOffset(4, 240));
+        assertEquals(76, MarkerAssist.barOffset(9, 240), "wat vanilla niet tekent, telt niet mee");
+        assertEquals(19, MarkerAssist.barOffset(5, 60), "altijd minstens de eerste");
+    }
+
+    @Test
     void stillToDoPerMarkerBlockCountsEmptyAndBlocked() {
         MarkerLayer l = fourMarkers();
         assertEquals(1, l.counts().placed());

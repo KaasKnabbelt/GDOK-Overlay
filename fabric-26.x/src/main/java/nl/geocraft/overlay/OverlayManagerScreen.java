@@ -170,6 +170,7 @@ public class OverlayManagerScreen extends Screen {
                 addEntry(new TextEntry(Component.literal("Bomenplannen").withColor(WHITE)));
                 for (OverlayMenuState.PlanRow plan : plans) addEntry(new PlanEntry(plan));
                 addEntry(new PlanHelpEntry());
+                addEntry(new PlanPlaceEntry());
             }
             addEntry(new TextEntry(Component.literal("Instellingen").withColor(WHITE)));
             if (advanced) {
@@ -352,18 +353,28 @@ public class OverlayManagerScreen extends Screen {
 
     /**
      * One tree plan (marker layer, BOMEN.md §9.7): sapling icon, name, live counts with the
-     * foreign marker blocks in red, and Commando (the paste commands in the chat, which opens),
+     * foreign marker blocks in red, Deel (a link to the paste commands in the chat box, 1.2.1),
+     * Commando (the paste commands in the chat, which opens),
      * Verberg/Toon and remove.
      */
     private class PlanEntry extends Entry {
         private static final ItemStack ICON = new ItemStack(Items.OAK_SAPLING);
         private final OverlayMenuState.PlanRow row;
+        private final Button share;
         private final Button command;
         private final Button visibility;
         private final Button remove;
 
         PlanEntry(OverlayMenuState.PlanRow row) {
             this.row = row;
+            this.share = Button.builder(Component.literal("Deel"), b -> {
+                        state.requestShare(row.id());
+                        state.save();
+                        if (minecraft != null) PasteLines.openChat(minecraft);
+                    })
+                    .size(36, 20)
+                    .tooltip(Tooltip.create(Component.literal("Zet een link naar de paste-commando's van dit plan in je chatbalk, om naar CVDK te sturen. De GDOK-viewer moet open staan in je browser.")))
+                    .build();
             this.command = Button.builder(Component.literal("Commando"), b -> {
                         state.requestPaste(row.id());
                         state.save();
@@ -395,6 +406,8 @@ public class OverlayManagerScreen extends Screen {
             visibility.setPosition(x, y);
             x -= GAP + command.getWidth();
             command.setPosition(x, y);
+            x -= GAP + share.getWidth();
+            share.setPosition(x, y);
 
             int iconX = getContentX();
             graphics.item(ICON, iconX, getContentYMiddle() - 8);
@@ -413,6 +426,7 @@ public class OverlayManagerScreen extends Screen {
                 }
             }
 
+            share.extractRenderState(graphics, mouseX, mouseY, a);
             command.extractRenderState(graphics, mouseX, mouseY, a);
             visibility.extractRenderState(graphics, mouseX, mouseY, a);
             remove.extractRenderState(graphics, mouseX, mouseY, a);
@@ -420,7 +434,7 @@ public class OverlayManagerScreen extends Screen {
 
         @Override
         public List<? extends GuiEventListener> children() {
-            return List.of(command, visibility, remove);
+            return List.of(share, command, visibility, remove);
         }
     }
 
@@ -447,6 +461,30 @@ public class OverlayManagerScreen extends Screen {
         @Override
         public List<? extends GuiEventListener> children() {
             return List.of(seeThrough, hud);
+        }
+    }
+
+    /**
+     * Under the plans: a right-click on a ghost places the plan's marker block. Off (1.2.1, for
+     * another tree pack than gdok): the player puts down a block of his own, and a loose block
+     * on the spot counts as placed.
+     */
+    private class PlanPlaceEntry extends Entry {
+        private final CycleButton<Boolean> place = CycleButton.onOffBuilder(state.markerPlace())
+                .withTooltip(v -> Tooltip.create(Component.literal(
+                        "Aan: een rechtsklik op een spookblok zet het markerblok van het plan neer. Uit: je zet zelf een blok naar keuze neer (voor een andere bomenpack); een los blok op de plek telt dan als geplaatst.")))
+                .create(0, 0, 150, 20, Component.literal("Rechtsklik plaatst"), (b, v) -> state.setMarkerPlace(v));
+
+        @Override
+        public void extractContent(GuiGraphicsExtractor graphics, int mouseX, int mouseY, boolean hovered, float a) {
+            int y = getContentY() + (getContentHeight() - 20) / 2;
+            place.setPosition(getContentXMiddle() - 155, y);
+            place.extractRenderState(graphics, mouseX, mouseY, a);
+        }
+
+        @Override
+        public List<? extends GuiEventListener> children() {
+            return List.of(place);
         }
     }
 

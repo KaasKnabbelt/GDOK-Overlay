@@ -17,6 +17,7 @@ import com.mojang.blaze3d.platform.InputConstants;
 import nl.geocraft.overlay.markers.MarkerAssist;
 import nl.geocraft.overlay.markers.MarkerManager;
 import nl.geocraft.overlay.markers.PasteChat;
+import nl.geocraft.overlay.markers.PlanShare;
 import org.lwjgl.glfw.GLFW;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -85,6 +86,8 @@ public class GeoOverlayMod implements ClientModInitializer {
         // (Commando in het G-menu, /gdok paste); een verstuurd commando wordt grijs. De mod voert
         // zelf niets uit.
         PasteChat.getInstance().setPrinter(PasteLines::print);
+        // Deel in het G-menu: de open viewer maakt een link naar de paste-commando's (PlanShare).
+        PlanShare.getInstance().setUi(PasteLines.SHARE_UI);
         ClientSendMessageEvents.COMMAND.register(PasteLines::onCommandSent);
         // /gdok opent de viewer op je plek, /gdok paste geeft de paste-commando's (GdokChat).
         ClientCommandRegistrationCallback.EVENT.register((dispatcher, context) -> dispatcher.register(
@@ -142,6 +145,7 @@ public class GeoOverlayMod implements ClientModInitializer {
             MarkerManager.getInstance().resetSession();
             MarkerAssist.reset();
             PasteChat.getInstance().reset();
+            PlanShare.getInstance().reset();
             PasteLines.reset();
 
             // Detect server address (primary gate check)
@@ -181,6 +185,7 @@ public class GeoOverlayMod implements ClientModInitializer {
             MarkerManager.getInstance().resetSession();
             MarkerAssist.reset();
             PasteChat.getInstance().reset();
+            PlanShare.getInstance().reset();
             PasteLines.reset();
             PlayerTracker.getInstance().clear();
             bridgeServer.broadcastGateStatus(false);
@@ -189,6 +194,7 @@ public class GeoOverlayMod implements ClientModInitializer {
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             renderer.tick(client);
             PasteChat.getInstance().tick();
+            PlanShare.getInstance().tick();
             MarkerInput.onEndTick(client);
 
             while (SETTINGS_KEY.consumeClick()) {
@@ -262,9 +268,12 @@ public class GeoOverlayMod implements ClientModInitializer {
     private void adjustHeight(OverlayManager overlayManager, int delta, net.minecraft.client.Minecraft client) {
         // Zelfde niveau aan: alleen het gedeelde niveau schuift; uit: elke overlay zijn eigen Y.
         overlayManager.adjustAllY(delta);
+        // Vastgezette lagen schuiven niet mee; het bericht zegt dat erbij (Messages.overlayYDelta).
+        int pinned = overlayManager.pinnedCount();
+        int moved = overlayManager.getOverlayCount() - pinned;
 
         if (client.player != null) {
-            client.player.sendOverlayMessage(net.minecraft.network.chat.Component.literal(Messages.overlayYDelta(delta)));
+            client.player.sendOverlayMessage(net.minecraft.network.chat.Component.literal(Messages.overlayYDelta(delta, pinned, moved)));
         }
 
         // Hoogtes terugmelden aan de site (compat met een oudere site die ze toont).

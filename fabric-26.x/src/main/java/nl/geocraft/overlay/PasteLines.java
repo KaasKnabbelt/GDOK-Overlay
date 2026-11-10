@@ -7,6 +7,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.HoverEvent;
 import net.minecraft.network.chat.MutableComponent;
 import nl.geocraft.overlay.markers.PasteChat;
+import nl.geocraft.overlay.markers.PlanShare;
 
 import java.util.List;
 
@@ -56,6 +57,43 @@ public final class PasteLines {
 
     static void reset() {
         PRINTED.clear();
+        lastShare = null;
+    }
+
+    // -- "Deel" in the G menu (common PlanShare) ----------------------------
+
+    private static String lastShare;
+
+    /** How {@link PlanShare} shows things: a line for the player, or the link text in the chat box. */
+    static final PlanShare.Ui SHARE_UI = new PlanShare.Ui() {
+        @Override
+        public void message(String text) {
+            Minecraft client = Minecraft.getInstance();
+            if (client.player != null) client.gui.hud.getChat().addClientSystemMessage(Component.literal(text));
+        }
+
+        /**
+         * Into the chat box, ready to send. With another screen open (the player went on in the
+         * meantime) a line he can click instead: closing his screen for him would be rude.
+         */
+        @Override
+        public void chat(String text) {
+            Minecraft client = Minecraft.getInstance();
+            if (client.player == null) return;
+            lastShare = text;
+            if (client.gui.screen() == null || client.gui.screen() instanceof ChatScreen) {
+                client.gui.setScreen(new ChatScreen(text, false));
+                return;
+            }
+            client.gui.hud.getChat().addClientSystemMessage(Component.literal(Messages.shareReady()).withStyle(style -> style
+                    .withClickEvent(new ClickEvent.SuggestCommand(text))
+                    .withHoverEvent(new HoverEvent.ShowText(Component.literal(text)))));
+        }
+    };
+
+    /** Diagnostics (gametests): the last text "Deel" put in the chat box, or null. */
+    public static String lastShare() {
+        return lastShare;
     }
 
     /** Diagnostics (gametests): the colour of each printed line of this command, oldest first. */

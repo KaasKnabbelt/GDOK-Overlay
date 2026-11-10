@@ -282,6 +282,11 @@ public class OverlayManager {
         return pinnedIds.contains(id);
     }
 
+    /** How many overlays are pinned (Page Up/Down skips those; the message says so). */
+    public int pinnedCount() {
+        return pinnedIds.size();
+    }
+
     /**
      * Pin = freeze: own height, immune to PageUp/PageDown, the shared level and bulk clears.
      * Pinning while the shared level is on copies that level into the overlay's own Y, so the

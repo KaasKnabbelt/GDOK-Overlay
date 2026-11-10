@@ -74,7 +74,10 @@ final class MarkerInput {
         if (MarkerManager.getInstance().isEmpty()) return;
         McMarkerProbe.loadDutch();
         handlePick(client);
-        handleUse(client);
+        // "Rechtsklik plaatst" uit (G-menu, 1.2.1): vanilla zet neer wat je in je hand hebt, en een
+        // los blok op de plek telt als geplaatst (MarkerScanner). Middelklik blijft werken.
+        if (OverlayConfig.getInstance().isMarkerPlace()) handleUse(client);
+        else holdOwned = false;
     }
 
     /** End of the tick: the use key gets its real state back (see the class comment). */

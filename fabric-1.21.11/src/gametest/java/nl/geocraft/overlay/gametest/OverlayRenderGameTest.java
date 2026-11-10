@@ -15,6 +15,7 @@ import nl.geocraft.overlay.OverlayManagerScreen;
 import nl.geocraft.overlay.PasteLines;
 import nl.geocraft.overlay.markers.MarkerManager;
 import nl.geocraft.overlay.markers.PasteChat;
+import nl.geocraft.overlay.markers.PlanShare;
 import nl.geocraft.overlay.render.RenderMode;
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
@@ -128,6 +129,53 @@ public class OverlayRenderGameTest implements FabricClientGameTest {
             double magentaRaised = ScreenshotProbe.centralFraction(raised, ScreenshotProbe::isMagenta);
             assertThat(magentaRaised > 0.5, "verhoogde overlay niet zichtbaar: " + magentaRaised);
             ctx.runOnClient(mc -> OverlayManager.getInstance().adjustAllY(-1));
+
+            // 6b. De echte toetsen, zoals tijdens het meten: Page Up en Page Down verleggen het
+            //     niveau, het blijft staan als de site dezelfde laag opnieuw stuurt (een nieuwe
+            //     meetlijn, met de AHN-hint) en een laag die er daarna bij komt, volgt het ook.
+            //     De testclient bewaart zijn config: "zelfde niveau" kan uit staan van een vorige run.
+            boolean sameLevel0 = ctx.computeOnClient(mc -> OverlayManager.getInstance().isSameLevel());
+            ctx.runOnClient(mc -> OverlayManager.getInstance().setSameLevel(true));
+            ctx.waitTicks(5);
+            int level0 = ctx.computeOnClient(mc -> OverlayManager.getInstance().getLevelY());
+            ctx.getInput().pressKey(GLFW.GLFW_KEY_PAGE_UP);
+            ctx.waitTicks(3);
+            ctx.getInput().pressKey(GLFW.GLFW_KEY_PAGE_UP);
+            ctx.waitTicks(5);
+            int up = drawnY(ctx, "paint_magenta_wool");
+            LOGGER.info("[gametest] Page Up x2: niveau {} -> {}", level0, up);
+            assertThat(up == level0 + 2, "Page Up verlegt de laag niet: " + level0 + " -> " + up);
+            sendViaBridge(addMessage("paint_magenta_wool", "paint", 0, 0, 16, OVERLAY_Y, "magenta_wool", 255, 0, 255));
+            sendViaBridge(addMessage("paint_gold_block", "paint", 20, 0, 4, OVERLAY_Y + 3, "gold_block", 253, 225, 67));
+            ctx.waitFor(mc -> OverlayManager.getInstance().getOverlay("paint_gold_block") != null);
+            ctx.waitTicks(5);
+            assertThat(drawnY(ctx, "paint_magenta_wool") == level0 + 2,
+                    "een herzending van de site zet de hoogte terug: " + drawnY(ctx, "paint_magenta_wool"));
+            assertThat(drawnY(ctx, "paint_gold_block") == level0 + 2,
+                    "een nieuwe laag volgt het verlegde niveau niet: " + drawnY(ctx, "paint_gold_block"));
+            for (int i = 0; i < 3; i++) {
+                ctx.getInput().pressKey(GLFW.GLFW_KEY_PAGE_DOWN);
+                ctx.waitTicks(3);
+            }
+            ctx.waitTicks(5);
+            assertThat(drawnY(ctx, "paint_magenta_wool") == level0 - 1 && drawnY(ctx, "paint_gold_block") == level0 - 1,
+                    "Page Down verlegt de lagen niet: " + drawnY(ctx, "paint_magenta_wool") + " en " + drawnY(ctx, "paint_gold_block"));
+            // Zonder "zelfde niveau" schuift elke laag vanaf zijn eigen hoogte.
+            ctx.runOnClient(mc -> OverlayManager.getInstance().setSameLevel(false));
+            int own0 = drawnY(ctx, "paint_gold_block");
+            ctx.getInput().pressKey(GLFW.GLFW_KEY_PAGE_UP);
+            ctx.waitTicks(5);
+            assertThat(drawnY(ctx, "paint_gold_block") == own0 + 1,
+                    "Page Up zonder zelfde niveau verlegt de laag niet: " + own0 + " -> " + drawnY(ctx, "paint_gold_block"));
+            // Een vastgezette laag blijft staan (en het bericht onderin zegt dat, Messages.overlayYDelta).
+            ctx.runOnClient(mc -> OverlayManager.getInstance().setPinned("paint_gold_block", true));
+            int pinnedAt = drawnY(ctx, "paint_gold_block"), freeAt = drawnY(ctx, "paint_magenta_wool");
+            ctx.getInput().pressKey(GLFW.GLFW_KEY_PAGE_UP);
+            ctx.waitTicks(5);
+            assertThat(drawnY(ctx, "paint_gold_block") == pinnedAt && drawnY(ctx, "paint_magenta_wool") == freeAt + 1,
+                    "Page Up met een vastgezette laag: " + drawnY(ctx, "paint_gold_block") + " (was " + pinnedAt + ") en "
+                            + drawnY(ctx, "paint_magenta_wool") + " (was " + freeAt + ")");
+            ctx.runOnClient(mc -> OverlayManager.getInstance().setSameLevel(sameLevel0));
 
             // 7. Prestatie: 100.000 blokken (316x316) mogen de framerate niet slopen.
             ctx.runOnClient(mc -> OverlayManager.getInstance().resetSession());
@@ -389,6 +437,25 @@ public class OverlayRenderGameTest implements FabricClientGameTest {
             String held = blockAt(sp, 10, OVERLAY_Y, 2), heldAbove = blockAt(sp, 10, OVERLAY_Y + 1, 2);
             LOGGER.info("[gametest] rechtsklik vastgehouden: {} (erboven {})", held, heldAbove);
             assertThat("magenta_wool".equals(held) && "air".equals(heldAbove), "vasthouden: " + held + " / " + heldAbove);
+            // "Rechtsklik plaatst" uit (1.2.1, voor een andere bomenpack): vanilla zet de steen uit je
+            // hand neer, op de grond achter het spookblok, en dat losse blok telt als geplaatst.
+            int placedBefore = ctx.computeOnClient(mc -> MarkerManager.getInstance().get("plan-gametest").counts().placed());
+            ctx.runOnClient(mc -> OverlayConfig.getInstance().setMarkerPlace(false));
+            sp.getServer().runCommand("item replace entity @a weapon.mainhand with minecraft:stone");
+            sp.getServer().runCommand("tp @a 13.5 " + OVERLAY_Y + " 1.5 0 30");
+            ctx.waitTicks(15);
+            ctx.getInput().pressKey(options -> options.useKey);
+            ctx.waitTicks(10);
+            String ghostSpot = blockAt(sp, 13, OVERLAY_Y, 2), ownSpot = blockAt(sp, 13, OVERLAY_Y, 4);
+            LOGGER.info("[gametest] rechtsklik met de schakelaar uit: op het spookblok {}, op de grond erachter {}", ghostSpot, ownSpot);
+            assertThat("air".equals(ghostSpot), "met de schakelaar uit zette de mod toch iets op het spookblok: " + ghostSpot);
+            assertThat("stone".equals(ownSpot), "vanilla zette de steen niet neer: " + ownSpot);
+            ctx.waitFor(mc -> MarkerManager.getInstance().get("plan-gametest").counts().placed() == placedBefore + 1, 200);
+            ctx.takeScreenshot("14e-eigen-blok");
+            // Weer aan: het eigen blok telt niet meer, het spookblok staat er weer (bovenop).
+            ctx.runOnClient(mc -> OverlayConfig.getInstance().setMarkerPlace(true));
+            ctx.waitFor(mc -> MarkerManager.getInstance().get("plan-gametest").counts().placed() == placedBefore, 200);
+            sp.getServer().runCommand("setblock 13 " + OVERLAY_Y + " 4 minecraft:air");
             sp.getServer().runCommand("gamemode spectator @a");
 
             // Paste-commando's in de chat (/gdok paste), en grijs na het versturen.
@@ -439,6 +506,20 @@ public class OverlayRenderGameTest implements FabricClientGameTest {
             LOGGER.info("[gametest] balk groen aan = {}, uit = {}", barOn, barOff);
             assertThat(barOn > 0.02, "de balk bovenin is er niet (half vol): " + barOn);
             assertThat(barOff < 0.002, "de balk staat er nog na uitzetten: " + barOff);
+            // Met een bossbar van de server (GeoCraft: "Welkom op: GeoCraft.nl") staat de balk eronder,
+            // 19 GUI-pixels lager; de balk zelf is er 5 dik (1.2.1: ze stonden over elkaar heen).
+            ctx.waitTicks(5);
+            int[] rowsFree = ScreenshotProbe.rowsOf(ctx.takeScreenshot("15b2-balk-zonder-bossbar"), 0.32, 0.48, barGreen);
+            sp.getServer().runCommand("bossbar add gdoktest \"Welkom op: GeoCraft.nl\"");
+            sp.getServer().runCommand("bossbar set minecraft:gdoktest players @a");
+            ctx.waitTicks(20);
+            int[] rowsBoss = ScreenshotProbe.rowsOf(ctx.takeScreenshot("15b3-balk-onder-bossbar"), 0.32, 0.48, barGreen);
+            sp.getServer().runCommand("bossbar remove minecraft:gdoktest");
+            assertThat(rowsFree != null && rowsBoss != null, "de balk is niet gevonden: " + java.util.Arrays.toString(rowsFree) + " / " + java.util.Arrays.toString(rowsBoss));
+            int thick = rowsFree[1] - rowsFree[0] + 1, shift = rowsBoss[0] - rowsFree[0];
+            LOGGER.info("[gametest] balk op rij {}, onder een bossbar op rij {} (dikte {}, verschoven {})", rowsFree[0], rowsBoss[0], thick, shift);
+            assertThat(Math.abs(shift - thick * 19 / 5.0) <= thick * 0.4, "de balk staat niet 19 GUI-pixels lager onder een bossbar: " + shift + " bij dikte " + thick);
+            ctx.waitTicks(10);
             String title = ctx.computeOnClient(mc -> {
                 var s = nl.geocraft.overlay.markers.MarkerAssist.status();
                 return s == null ? null : nl.geocraft.overlay.markers.MarkerAssist.barTitle(s);
@@ -508,6 +589,33 @@ public class OverlayRenderGameTest implements FabricClientGameTest {
             LOGGER.info("[gametest] /gdok met viewer: {} (browser: {})", go, opened.get());
             assertThat(go != null, "geen view/goto naar de viewer");
             assertThat(opened.get() == null, "browser geopend terwijl de viewer kon vliegen: " + opened.get());
+
+            // Deel (PlanShare, 1.2.1): zonder viewer die share kent alleen een melding.
+            assertThat(listener.hello().contains("\"share\""), "hello zonder share: " + listener.hello());
+            ctx.runOnClient(mc -> PlanShare.getInstance().request("plan-gametest"));
+            ctx.waitTicks(5);
+            assertThat(!PlanShare.getInstance().isPending() && PasteLines.lastShare() == null, "Deel zonder viewer die het kan, deed toch iets");
+            // Met zo'n viewer: de mod vraagt de link, en een link van elders komt de chatbalk niet in.
+            listener.send("{\"type\":\"site\",\"action\":\"hello\",\"features\":[\"goto\",\"share\"]}");
+            ctx.waitTicks(10);
+            ctx.runOnClient(mc -> PlanShare.getInstance().request("plan-gametest"));
+            String ask = listener.waitFor("\"type\":\"markers\"", "\"action\":\"share\"", "\"id\":\"plan-gametest\"");
+            assertThat(ask != null, "geen markers/share naar de viewer");
+            listener.send("{\"type\":\"markers\",\"action\":\"shared\",\"id\":\"plan-gametest\",\"url\":\"https://evil.example/bomen/abcd1234#paste\"}");
+            ctx.waitFor(mc -> !PlanShare.getInstance().isPending(), 100);
+            assertThat(PasteLines.lastShare() == null, "een vreemde link kwam in de chatbalk: " + PasteLines.lastShare());
+            ctx.runOnClient(mc -> PlanShare.getInstance().request("plan-gametest"));
+            ctx.waitTicks(5);
+            listener.send("{\"type\":\"markers\",\"action\":\"shared\",\"id\":\"plan-gametest\",\"url\":\"https://gdok.nl/bomen/abcd1234#paste\"}");
+            ctx.waitFor(mc -> PasteLines.lastShare() != null, 100);
+            String shareText = PasteLines.lastShare();
+            boolean shareChat = ctx.computeOnClient(mc -> mc.currentScreen instanceof net.minecraft.client.gui.screen.ChatScreen);
+            LOGGER.info("[gametest] Deel: '{}' (chat open: {})", shareText, shareChat);
+            assertThat("Bomenplan Gametest-plan, paste-commando's: https://gdok.nl/bomen/abcd1234#paste".equals(shareText), "tekst voor de chatbalk: " + shareText);
+            assertThat(shareChat, "de chat ging niet open met de link");
+            ctx.waitTicks(5);
+            ctx.takeScreenshot("15f-deel-chat");
+            ctx.runOnClient(mc -> mc.setScreen(null));
 
             // Een vreemde webpagina mag niet verbinden.
             BridgeListener evil = BridgeListener.tryOpen("https://evil.example");
@@ -710,6 +818,11 @@ public class OverlayRenderGameTest implements FabricClientGameTest {
             Thread.currentThread().interrupt();
             throw new AssertionError(e);
         }
+    }
+
+    /** The Y an overlay is drawn at right now (shared level or its own). */
+    private static int drawnY(ClientGameTestContext ctx, String id) {
+        return ctx.computeOnClient(mc -> OverlayManager.getInstance().getRenderY(OverlayManager.getInstance().getOverlay(id)));
     }
 
     private static void assertThat(boolean condition, String message) {

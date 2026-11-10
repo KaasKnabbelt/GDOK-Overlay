@@ -71,6 +71,7 @@ public final class MarkerManager {
     private MarkerPlan begunPlan;
     private final ArrayDeque<String> checkQueue = new ArrayDeque<>();
     private ForeignCheck check;
+    private boolean ownBlocks;
 
     public static MarkerManager getInstance() {
         return INSTANCE;
@@ -144,6 +145,20 @@ public final class MarkerManager {
     }
 
     /**
+     * "Rechtsklik plaatst" off (OverlayConfig): a loose block on a spot is the player's own marker
+     * ({@link MarkerScanner}). A change rescans every plan. Called from the client thread.
+     */
+    public void setOwnBlocks(boolean value) {
+        if (ownBlocks == value) return;
+        ownBlocks = value;
+        markAllDirty();
+    }
+
+    public boolean isOwnBlocks() {
+        return ownBlocks;
+    }
+
+    /**
      * Check this plan's area for foreign marker blocks ({@link ForeignCheck}), on the next ticks.
      * A check that is already queued or running for the plan counts; {@link MarkerLayer#checks()}
      * goes up when it is done.
@@ -200,7 +215,7 @@ public final class MarkerManager {
                     }
                     begin(probe, l);
                     for (int k = l.bucketStart[b]; k < l.bucketStart[b + 1]; k++) {
-                        MarkerScanner.scan(l, l.order[k], probe, kinds);
+                        MarkerScanner.scan(l, l.order[k], probe, kinds, ownBlocks);
                     }
                     l.bucketDirty[b] = false;
                     budget -= l.bucketStart[b + 1] - l.bucketStart[b];
@@ -222,7 +237,7 @@ public final class MarkerManager {
                 continue;
             }
             begin(probe, l);
-            MarkerScanner.scan(l, rrMarker++, probe, kinds);
+            MarkerScanner.scan(l, rrMarker++, probe, kinds, ownBlocks);
         }
 
         runForeignCheck(probe);

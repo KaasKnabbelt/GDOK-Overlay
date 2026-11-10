@@ -3,6 +3,7 @@ package nl.geocraft.overlay;
 import nl.geocraft.overlay.markers.MarkerLayer;
 import nl.geocraft.overlay.markers.MarkerManager;
 import nl.geocraft.overlay.markers.PasteChat;
+import nl.geocraft.overlay.markers.PlanShare;
 import nl.geocraft.overlay.render.RenderMode;
 
 import java.util.ArrayList;
@@ -147,6 +148,15 @@ public final class OverlayMenuState {
         config.setMarkerHud(value);
     }
 
+    /** Tree plans: a right-click on a ghost places the plan's marker block (off: your own block counts). */
+    public boolean markerPlace() {
+        return config.isMarkerPlace();
+    }
+
+    public void setMarkerPlace(boolean value) {
+        config.setMarkerPlace(value);
+    }
+
     /** Advanced menu mode (per-layer steppers/pins, shared level, location, keybinds). */
     public boolean advancedMenu() {
         return config.isAdvancedMenu();
@@ -283,6 +293,11 @@ public final class OverlayMenuState {
     /** "Commando": the paste commands of this plan in the chat, after a fresh check. */
     public void requestPaste(String id) {
         PasteChat.getInstance().request(id);
+    }
+
+    /** "Deel": a link to this plan's paste commands in the chat box, made by the open viewer. */
+    public void requestShare(String id) {
+        PlanShare.getInstance().request(id);
     }
 
     public void setPlanHidden(String id, boolean hidden) {

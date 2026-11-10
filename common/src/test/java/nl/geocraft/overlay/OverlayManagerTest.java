@@ -242,6 +242,49 @@ class OverlayManagerTest {
         assertEquals(45, mgr.getRenderY(mgr.getOverlay("paint_b")));
     }
 
+    /**
+     * Gemeld op 10 november 2026: "Page Up/Down verplaatst de selecties niet". De enige weg
+     * waarlangs de toetsen een laag overslaan is een vastgezette laag, en de hoogteknop van
+     * een rij (uitgebreid menu) zet die rij ook vast. Dat blijft zo voor alles wat daarna in
+     * hetzelfde blok getekend wordt, tot de laag weg is of de speler opnieuw joint.
+     */
+    @Test
+    void aRowStepperPinStaysThroughRepaintsSoPageUpSkipsThatLayer() {
+        mgr.addOverlay(overlay("paint_gold_block", 40, 10));
+        mgr.addOverlay(overlay("paint_red_wool", 40, 10));
+        mgr.adjustOverlayY("paint_gold_block", 1); // de hoogteknop van de rij
+        assertTrue(mgr.isPinned("paint_gold_block"));
+
+        mgr.addOverlay(overlay("paint_gold_block", 40, 25)); // een nieuwe meetlijn in goud
+        assertTrue(mgr.isPinned("paint_gold_block"));
+        mgr.adjustAllY(5); // Page Up x5
+        assertEquals(41, mgr.getRenderY(mgr.getOverlay("paint_gold_block")), "de vastgezette laag blijft staan");
+        assertEquals(45, mgr.getRenderY(mgr.getOverlay("paint_red_wool")), "de rest schuift wel");
+
+        mgr.setPinned("paint_gold_block", false); // losmaken: terug op het gedeelde niveau
+        assertEquals(45, mgr.getRenderY(mgr.getOverlay("paint_gold_block")));
+    }
+
+    @Test
+    void pageUpSaysWhichLayersStay() {
+        assertEquals(Messages.overlayYDelta(1), Messages.overlayYDelta(1, 0, 3), "zonder vastgezette lagen: het oude bericht");
+        assertTrue(Messages.overlayYDelta(1, 0, 3).endsWith("Overlay Y +1"));
+        assertTrue(Messages.overlayYDelta(-1, 2, 1).contains("Overlay Y -1"));
+        assertTrue(Messages.overlayYDelta(-1, 2, 1).contains("2 vastgezette lagen blijven staan"));
+        assertTrue(Messages.overlayYDelta(1, 1, 4).contains("1 vastgezette laag blijft staan"));
+        assertFalse(Messages.overlayYDelta(1, 1, 0).contains("Overlay Y"), "niets verschoven: dat zeggen, geen +1");
+        assertTrue(Messages.overlayYDelta(1, 1, 0).contains("staat vast"));
+        assertTrue(Messages.overlayYDelta(1, 3, 0).contains("Alle 3 lagen staan vast"));
+
+        mgr.addOverlay(overlay("paint_a", 40, 10));
+        mgr.addOverlay(overlay("paint_b", 40, 10));
+        assertEquals(0, mgr.pinnedCount());
+        mgr.adjustOverlayY("paint_a", 1);
+        assertEquals(1, mgr.pinnedCount());
+        mgr.removeOverlay("paint_a");
+        assertEquals(0, mgr.pinnedCount());
+    }
+
     @Test
     void pinningFreezesTheLayerWhereItIsShown() {
         mgr.addOverlay(overlay("paint_a", 40, 10));

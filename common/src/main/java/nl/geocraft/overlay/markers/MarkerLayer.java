@@ -14,7 +14,8 @@ import java.util.List;
 public final class MarkerLayer {
 
     /**
-     * Marker counts per status, as reported to the site and shown in the G menu, plus the
+     * Marker counts per status, as reported to the site and shown in the G menu ({@code placed}
+     * includes the player's own blocks, {@link MarkerStatus#OWN}), plus the
      * marker blocks in the area that are not part of the plan ({@link ForeignCheck}; -1 = not
      * checked yet).
      */
@@ -265,7 +266,7 @@ public final class MarkerLayer {
             switch (s) {
                 case UNKNOWN -> unknown++;
                 case EMPTY -> empty++;
-                case PLACED -> placed++;
+                case PLACED, OWN -> placed++;
                 case BLOCKED -> blocked++;
                 case TREE -> existing++;
                 case PLANTED -> planted++;

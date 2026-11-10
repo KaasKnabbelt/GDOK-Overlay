@@ -20,6 +20,16 @@ package nl.geocraft.overlay.markers;
  * <p>After pasting, geotools puts the lowest trunk block where the marker was. A log gives a
  * TREE spot straight away; a fence trunk is one of the plan's trunk blocks, which the probe
  * also reports as TREE.</p>
+ *
+ * <h2>Own blocks</h2>
+ * <p>With "Rechtsklik plaatst" off (1.2.1, for players who use another tree pack than gdok) the
+ * player puts a block of his own choice on the spot. The scanner cannot tell such a block from
+ * the ground by its kind, and without help it would take the top of that block as the new spot
+ * (the ghost would sit on it). So in that mode a <em>loose</em> block counts as the player's
+ * ({@link MarkerStatus#OWN}): solid, on solid ground, free above and free on all four sides.
+ * Ground that is a block higher than the site thought has neighbours; a block someone put down
+ * has not. A post or a bollard on the spot counts too, which is fine in this mode: something
+ * already stands there. The check needs no memory, so it survives a rejoin.</p>
  */
 public final class MarkerScanner {
 
@@ -39,6 +49,14 @@ public final class MarkerScanner {
      * @param kinds scratch buffer of at least {@link #bufferSize()} entries
      */
     public static void scan(MarkerLayer layer, int i, MarkerProbe probe, int[] kinds) {
+        scan(layer, i, probe, kinds, false);
+    }
+
+    /**
+     * @param ownBlocks "Rechtsklik plaatst" is off: a loose block on the spot is the player's own
+     *                  marker ({@link MarkerStatus#OWN}), see the class comment
+     */
+    public static void scan(MarkerLayer layer, int i, MarkerProbe probe, int[] kinds, boolean ownBlocks) {
         MarkerPlan.Marker m = layer.plan.markers()[i];
         if (!probe.isChunkLoaded(m.x() >> 4, m.z() >> 4)) return;
         int e = m.siteY() != MarkerPlan.NO_Y ? m.siteY() : probe.surfaceY(m.x(), m.z());
@@ -50,6 +68,18 @@ public final class MarkerScanner {
             int d = (step + 1) / 2 * (step % 2 == 1 ? 1 : -1); // 0, +1, -1, +2, -2, ...
             int at = LOW + d;
             if (kinds[at - 1] != MarkerProbe.SOLID) continue;
+            if (ownBlocks) {
+                // The player's own block: on this position, or the "ground" this position stands on.
+                int own = isLoose(kinds, at, probe, m, base) ? at
+                        : at >= 2 && kinds[at - 2] == MarkerProbe.SOLID && isLoose(kinds, at - 1, probe, m, base) ? at - 1
+                        : -1;
+                if (own >= 0) {
+                    layer.wasPlaced[i] = true;
+                    layer.y[i] = base + own;
+                    layer.status[i] = (byte) MarkerStatus.OWN.ordinal();
+                    return;
+                }
+            }
             MarkerStatus found;
             switch (kinds[at]) {
                 case MarkerProbe.MARKER -> {
@@ -74,6 +104,25 @@ public final class MarkerScanner {
 
     public static int bufferSize() {
         return SPAN;
+    }
+
+    /**
+     * A solid block that stands loose: free above and nothing solid against its four sides. The
+     * caller knows the block below it is solid.
+     */
+    private static boolean isLoose(int[] kinds, int at, MarkerProbe probe, MarkerPlan.Marker m, int base) {
+        if (kinds[at] != MarkerProbe.SOLID || !isFree(kinds[at + 1])) return false;
+        int y = base + at;
+        return !isSolid(probe.kind(m.x() + 1, y, m.z(), m.block())) && !isSolid(probe.kind(m.x() - 1, y, m.z(), m.block()))
+                && !isSolid(probe.kind(m.x(), y, m.z() + 1, m.block())) && !isSolid(probe.kind(m.x(), y, m.z() - 1, m.block()));
+    }
+
+    private static boolean isFree(int kind) {
+        return kind == MarkerProbe.AIR || kind == MarkerProbe.REPLACEABLE;
+    }
+
+    private static boolean isSolid(int kind) {
+        return kind == MarkerProbe.SOLID || kind == MarkerProbe.MARKER;
     }
 
     private static boolean covered(int[] kinds, int at) {
