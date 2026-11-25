@@ -46,7 +46,7 @@ public class UpdateChecker {
             if (mc.player == null) return;
 
             MutableComponent message = Component.literal(Messages.PREFIX)
-                    .append(Component.literal(Messages.updateAvailableIntro()))
+                    .append(Component.literal(Messages.updateAvailableIntro(result.beta())))
                     .append(Component.literal(Messages.updateAvailableLatest(result.latestVersion())))
                     .append(Component.literal(Messages.updateAvailableCurrent(result.currentVersion())));
 

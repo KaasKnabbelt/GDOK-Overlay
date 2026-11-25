@@ -28,6 +28,14 @@ import java.time.Duration;
  * <p>De oude checker (t/m 1.0.6) las een veld {@code filename} dat niet meer bestaat sinds
  * mod-info.json meerdere jars per versie levert, en volgde geen redirects, waardoor hij na de
  * verhuizing naar gdok.nl stilviel. Daarom hier: {@code files[]} lezen én redirects volgen.</p>
+ *
+ * <p><b>Twee kanalen (sinds 1.2.1-beta.1).</b> De gewone versie staat in mod-info.json, een open
+ * beta in {@code beta-info.json} ernaast (zelfde vorm; {@code gradlew publishBeta}). Wie een
+ * gewone versie draait leest alleen mod-info.json en hoort dus nooit iets over een beta. Wie zelf
+ * een beta draait (een {@code -} in de eigen versie, zie {@link #isPreRelease}) leest beide en
+ * krijgt de hoogste: een nieuwere beta, of de gewone versie zodra die uit is
+ * ({@code 1.2.1-beta.1 < 1.2.1-beta.2 < 1.2.1}). Een beta installeren is dus de aanmelding;
+ * er is geen schakelaar. De jars t/m 1.2.0 kennen beta-info.json niet: daar hoeft niets voor.</p>
  */
 public final class UpdateCheckCore {
 
@@ -35,6 +43,8 @@ public final class UpdateCheckCore {
 
     public static final String SITE = "https://gdok.nl";
     public static final String VERSION_URL = SITE + "/downloads/mod-info.json";
+    /** De open beta, als die er is; bestaat het bestand niet, dan geeft de site een 404. */
+    public static final String BETA_URL = SITE + "/downloads/beta-info.json";
     /** Downloadpagina, de fallback-link als er geen jar voor deze Minecraft-versie is. */
     public static final String DOWNLOADS_PAGE_URL = SITE + "/downloads";
     /** Directe download via de route die meetelt in de downloadteller van de site. */
@@ -49,15 +59,17 @@ public final class UpdateCheckCore {
      * @param currentVersion   de eigen versie (zonder build-metadata)
      * @param downloadUrl      directe jar-download voor deze Minecraft-versie, of {@code null}
      *                         als de nieuwe versie (nog) geen jar voor deze Minecraft-versie heeft
+     * @param beta             de nieuwste versie is zelf een beta (het bericht zegt dat erbij)
      */
-    public record Result(String latestVersion, String currentVersion, String downloadUrl) {
+    public record Result(String latestVersion, String currentVersion, String downloadUrl, boolean beta) {
         public boolean hasFileForThisMinecraft() {
             return downloadUrl != null;
         }
     }
 
     /**
-     * Haalt mod-info.json op en vergelijkt. Blokkeert; aanroepen vanaf een eigen thread.
+     * Haalt mod-info.json op (en als de eigen versie een beta is ook beta-info.json) en
+     * vergelijkt. Blokkeert; aanroepen vanaf een eigen thread.
      *
      * @param modVersion de eigen modversie zoals Fabric die geeft, inclusief {@code +mc...}
      * @return het resultaat als er een nieuwere versie is, anders {@code null} (ook bij elke fout:
@@ -69,20 +81,36 @@ public final class UpdateCheckCore {
                     .connectTimeout(Duration.ofSeconds(5))
                     .followRedirects(HttpClient.Redirect.NORMAL)
                     .build();
+            String modInfo = fetch(client, VERSION_URL, modVersion);
+            // Een gewone versie vraagt het beta-bestand niet eens op.
+            String betaInfo = isPreRelease(modVersion) ? fetch(client, BETA_URL, modVersion) : null;
+            return evaluate(modInfo, betaInfo, modVersion);
+        } catch (Exception e) {
+            LOGGER.debug("[GeoCraft Overlay] Update check mislukt: {}", e.toString());
+            return null;
+        }
+    }
+
+    /** De tekst van een van de twee bestanden, of {@code null} als het er niet is of niet lukt. */
+    private static String fetch(HttpClient client, String url, String modVersion) {
+        try {
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(VERSION_URL))
+                    .uri(URI.create(url))
                     .timeout(Duration.ofSeconds(5))
                     .header("User-Agent", "GDOK-Overlay/" + stripBuildMetadata(modVersion))
                     .GET()
                     .build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() != 200) {
-                LOGGER.debug("[GeoCraft Overlay] Update check: HTTP {}", response.statusCode());
+                LOGGER.debug("[GeoCraft Overlay] Update check {}: HTTP {}", url, response.statusCode());
                 return null;
             }
-            return evaluate(response.body(), modVersion);
+            return response.body();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
         } catch (Exception e) {
-            LOGGER.debug("[GeoCraft Overlay] Update check mislukt: {}", e.toString());
+            LOGGER.debug("[GeoCraft Overlay] Update check {} mislukt: {}", url, e.toString());
             return null;
         }
     }
@@ -93,7 +121,40 @@ public final class UpdateCheckCore {
      * @return het resultaat als de site een nieuwere versie heeft, anders {@code null}
      */
     public static Result evaluate(String modInfoJson, String modVersion) {
-        JsonObject json = JsonParser.parseString(modInfoJson).getAsJsonObject();
+        return candidate(modInfoJson, modVersion);
+    }
+
+    /**
+     * Beide kanalen: de gewone versie en, alleen als de eigen versie een beta is, de open beta.
+     * De hoogste van de twee wint. Een kapot of ontbrekend bestand telt als "niets nieuws" en
+     * houdt het andere kanaal niet tegen.
+     *
+     * @param modInfoJson  de tekst van mod-info.json, of {@code null}
+     * @param betaInfoJson de tekst van beta-info.json, of {@code null} (geen beta, of niet opgehaald)
+     */
+    public static Result evaluate(String modInfoJson, String betaInfoJson, String modVersion) {
+        Result stable = safeCandidate(modInfoJson, modVersion);
+        if (!isPreRelease(modVersion)) return stable;
+
+        Result beta = safeCandidate(betaInfoJson, modVersion);
+        if (stable == null) return beta;
+        if (beta == null) return stable;
+        return isNewer(beta.latestVersion(), stable.latestVersion()) ? beta : stable;
+    }
+
+    private static Result safeCandidate(String infoJson, String modVersion) {
+        if (infoJson == null) return null;
+        try {
+            return candidate(infoJson, modVersion);
+        } catch (RuntimeException e) {
+            LOGGER.debug("[GeoCraft Overlay] Update check: onleesbaar antwoord ({})", e.toString());
+            return null;
+        }
+    }
+
+    /** Eén bestand (mod-info of beta-info, zelfde vorm) tegen de eigen versie. */
+    private static Result candidate(String infoJson, String modVersion) {
+        JsonObject json = JsonParser.parseString(infoJson).getAsJsonObject();
         if (!json.has("version")) return null;
 
         String latest = stripBuildMetadata(json.get("version").getAsString());
@@ -101,7 +162,13 @@ public final class UpdateCheckCore {
         if (!isNewer(latest, current)) return null;
 
         String filename = findFileFor(json, minecraftTarget(modVersion));
-        return new Result(latest, current, filename == null ? null : DOWNLOAD_FILE_URL + filename);
+        return new Result(latest, current, filename == null ? null : DOWNLOAD_FILE_URL + filename,
+                isPreRelease(latest));
+    }
+
+    /** Een pre-release heeft een {@code -} in de versie: {@code 1.2.1-beta.1}, ook met {@code +mc...}. */
+    public static boolean isPreRelease(String version) {
+        return stripBuildMetadata(version).indexOf('-') >= 0;
     }
 
     /** {@code "1.1.0+mc26.2"} → {@code "26.2"}; geen {@code +mc}-deel → {@code null}. */

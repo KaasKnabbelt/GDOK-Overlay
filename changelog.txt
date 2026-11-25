@@ -1,0 +1,9 @@
+# Releasenotes van de versie in mod_version, één punt per regel (regels met # tellen niet mee).
+# publishBeta zet dit in beta-info.json en generateModInfo in mod-info.json; gdok.nl/downloads
+# toont het in het tabblad Changelog. Werk dit bij voor elke beta en elke release.
+De balk van een bomenplan staat onder de bossbar van de server
+Rechtsklik plaatst is uit te zetten in het G-menu
+Deel in het G-menu zet een link naar het paste-commando in je chatbalk
+Page Up en Page Down melden het als vastgezette lagen blijven staan
+De naam van een markerblok staat in de taal van je game
+Meldt bij het joinen een nieuwere beta, alleen aan wie zelf een beta draait

@@ -1,3 +1,0 @@
-# Changelog van de huidige beta, één punt per regel (regels met # tellen niet mee).
-# publishBeta zet dit in beta-info.json; /beta toont het aan de testers.
-# Nu geen beta: 1.2.0 (bomenplannen) is op 1 november 2026 openbaar uitgebracht.

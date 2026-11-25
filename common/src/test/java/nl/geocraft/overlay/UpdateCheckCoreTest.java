@@ -102,4 +102,80 @@ class UpdateCheckCoreTest {
         String publiek = "{ \"version\": \"1.1.1\", \"files\": [] }";
         assertNull(UpdateCheckCore.evaluate(publiek, "1.1.2-beta.1+mc26.2"), "een beta krijgt geen melding over 1.1.1");
     }
+
+    // Twee kanalen: mod-info.json (gewone versie) en beta-info.json (open beta).
+
+    private static String info(String version) {
+        return "{ \"version\": \"" + version + "\", \"files\": ["
+                + "{ \"filename\": \"GDOK-Overlay-" + version + "+mc26.2.jar\", \"minecraft\": \"26.2\" } ] }";
+    }
+
+    @Test
+    void aStableVersionNeverHearsAboutABeta() {
+        // 1.2.0 met een open beta 1.2.1-beta.1 ernaast: geen melding, ook niet als het
+        // beta-bestand toch wordt meegegeven.
+        assertNull(UpdateCheckCore.evaluate(info("1.2.0"), info("1.2.1-beta.1"), "1.2.0+mc26.2"));
+        assertNull(UpdateCheckCore.evaluate(info("1.2.0"), info("1.3.0-beta.1"), "1.2.0+mc26.2"));
+
+        // De gewone versie zelf meldt hij wel, zonder het woord beta.
+        UpdateCheckCore.Result r = UpdateCheckCore.evaluate(info("1.2.1"), info("1.2.2-beta.1"), "1.2.0+mc26.2");
+        assertNotNull(r);
+        assertEquals("1.2.1", r.latestVersion());
+        assertFalse(r.beta());
+    }
+
+    @Test
+    void aBetaHearsAboutANewerBeta() {
+        UpdateCheckCore.Result r = UpdateCheckCore.evaluate(info("1.2.0"), info("1.2.1-beta.2"), "1.2.1-beta.1+mc26.2");
+        assertNotNull(r);
+        assertEquals("1.2.1-beta.2", r.latestVersion());
+        assertEquals("1.2.1-beta.1", r.currentVersion());
+        assertTrue(r.beta());
+        assertEquals("https://gdok.nl/download/GDOK-Overlay-1.2.1-beta.2+mc26.2.jar", r.downloadUrl());
+
+        // Een beta van een volgende versie telt ook.
+        UpdateCheckCore.Result next = UpdateCheckCore.evaluate(info("1.2.0"), info("1.2.2-beta.1"), "1.2.1-beta.3+mc26.2");
+        assertNotNull(next);
+        assertEquals("1.2.2-beta.1", next.latestVersion());
+
+        // Dezelfde beta, of een oudere die is blijven staan: niets.
+        assertNull(UpdateCheckCore.evaluate(info("1.2.0"), info("1.2.1-beta.1"), "1.2.1-beta.1+mc26.2"));
+        assertNull(UpdateCheckCore.evaluate(info("1.2.0"), info("1.2.1-beta.1"), "1.2.1-beta.2+mc26.2"));
+    }
+
+    @Test
+    void aBetaGetsTheHighestOfBothChannels() {
+        // De gewone 1.2.1 is uit en het beta-bestand staat er nog: de gewone versie wint.
+        UpdateCheckCore.Result uit = UpdateCheckCore.evaluate(info("1.2.1"), info("1.2.1-beta.2"), "1.2.1-beta.1+mc26.2");
+        assertNotNull(uit);
+        assertEquals("1.2.1", uit.latestVersion());
+        assertFalse(uit.beta());
+
+        // De gewone versie is nieuwer dan de eigen beta, maar er is al een beta van de volgende.
+        UpdateCheckCore.Result volgende = UpdateCheckCore.evaluate(info("1.2.1"), info("1.2.2-beta.1"), "1.2.1-beta.1+mc26.2");
+        assertNotNull(volgende);
+        assertEquals("1.2.2-beta.1", volgende.latestVersion());
+        assertTrue(volgende.beta());
+    }
+
+    @Test
+    void aMissingOrBrokenChannelDoesNotBlockTheOther() {
+        // Geen beta op de site (404) of een kapot bestand: de gewone versie blijft gemeld.
+        assertEquals("1.2.1", UpdateCheckCore.evaluate(info("1.2.1"), null, "1.2.1-beta.1+mc26.2").latestVersion());
+        assertEquals("1.2.1", UpdateCheckCore.evaluate(info("1.2.1"), "<html>404</html>", "1.2.1-beta.1+mc26.2").latestVersion());
+        // En andersom: mod-info.json niet te halen, de beta wel.
+        assertEquals("1.2.1-beta.2", UpdateCheckCore.evaluate(null, info("1.2.1-beta.2"), "1.2.1-beta.1+mc26.2").latestVersion());
+        assertEquals("1.2.1-beta.2", UpdateCheckCore.evaluate("kapot", info("1.2.1-beta.2"), "1.2.1-beta.1+mc26.2").latestVersion());
+        assertNull(UpdateCheckCore.evaluate(null, null, "1.2.1-beta.1+mc26.2"));
+        assertNull(UpdateCheckCore.evaluate(null, null, "1.2.0+mc26.2"));
+    }
+
+    @Test
+    void preReleaseIsReadFromTheOwnVersion() {
+        assertTrue(UpdateCheckCore.isPreRelease("1.2.1-beta.1+mc26.2"));
+        assertTrue(UpdateCheckCore.isPreRelease("1.2.1-rc.1"));
+        assertFalse(UpdateCheckCore.isPreRelease("1.2.1+mc26.2"));
+        assertFalse(UpdateCheckCore.isPreRelease("1.2.1+mc1.21.11"), "de streepjes van build-metadata tellen niet");
+        assertFalse(UpdateCheckCore.isPreRelease(null));
+    }
 }

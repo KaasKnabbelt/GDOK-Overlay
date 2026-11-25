@@ -46,7 +46,7 @@ public class UpdateChecker {
             if (mc.player == null) return;
 
             MutableText message = Text.literal(Messages.PREFIX)
-                    .append(Text.literal(Messages.updateAvailableIntro()))
+                    .append(Text.literal(Messages.updateAvailableIntro(result.beta())))
                     .append(Text.literal(Messages.updateAvailableLatest(result.latestVersion())))
                     .append(Text.literal(Messages.updateAvailableCurrent(result.currentVersion())));
 

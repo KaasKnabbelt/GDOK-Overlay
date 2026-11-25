@@ -84,7 +84,7 @@ En de overkoepelende mod info vind je in `build/mod-info.json`. Die wordt afgele
 
 ## Release
 
-1. Zet `mod_version` in de root-`build.gradle` op de nieuwe versie en commit de mod-repo.
+1. Zet `mod_version` in de root-`build.gradle` op de nieuwe versie, zet de releasenotes in `changelog.txt` (één punt per regel) en commit de mod-repo.
 2. Bouw en publiceer naar de site-repo (standaard `../gdok`, anders `-PsiteDir=/pad/naar/gdok`):
 
    ```bash
@@ -97,13 +97,22 @@ En de overkoepelende mod info vind je in `build/mod-info.json`. Die wordt afgele
 
 ### Beta
 
-Een pre-release (`mod_version = '1.1.2-beta.1'`) gaat nooit via `publishToSite` (die weigert hem), maar via:
+Een open beta is een pre-release (`mod_version = '1.2.1-beta.1'`, daarna `1.2.1-beta.2` of `1.2.2-beta.1`). Hij gaat nooit via `publishToSite` (die weigert hem), maar via:
 
 ```bash
 ./gradlew build publishBeta
 ```
 
-Die zet de jars en een `beta-info.json` (versie, datum, bestanden, de regels uit `beta-changelog.txt`) in `beta/mod/` van de gdok-repo, buiten `public/`: testers halen hem na het invoeren van hun code op gdok.nl/beta. Jars van een vorige beta worden daar weggehaald. De versievergelijking van de update-check kent pre-releases (`1.1.1 < 1.1.2-beta.3 < 1.1.2`), dus een beta biedt de publieke 1.1.1 niet als update aan en ziet de publieke 1.1.2 wel.
+Die zet de jars en een `beta-info.json` (versie, datum, bestanden, de releasenotes uit `changelog.txt`) in `public/downloads/` van de gdok-repo, naast `mod-info.json`. `mod-info.json` en `mod-legacy.json` blijven staan zoals ze zijn: op gdok.nl/downloads blijft de gewone versie de hoofddownload, met de beta er apart bij. De jars van een vorige beta worden weggehaald; er is er altijd maar één.
+
+Wie hoort wat bij het joinen (`UpdateCheckCore`):
+
+- **Een gewone versie** (1.2.0) leest alleen `mod-info.json` en hoort dus niets over een beta.
+- **Een beta** (een `-` in de eigen versie) leest ook `beta-info.json` en krijgt de hoogste van de twee: een nieuwere beta, of de gewone versie zodra die uit is (`1.2.0 < 1.2.1-beta.1 < 1.2.1-beta.2 < 1.2.1`). Een beta installeren is dus de aanmelding.
+
+Dat laatste zit in de mod sinds 1.2.1-beta.1; een oudere jar ziet een nieuwe beta nooit. Wordt de gewone versie uitgebracht (`publishToSite` met `mod_version = '1.2.1'`), dan haalt die taak een beta weg die daardoor is ingehaald en laat hij een beta van een volgende versie staan. Werk `changelog.txt` bij voor elke beta en elke release: `generateModInfo` zet dezelfde regels in `mod-info.json`, en de site toont ze in het tabblad Changelog.
+
+Tot 1 november 2026 was de beta gesloten (jars in `beta/mod/` buiten `public/`, te halen met een testercode op gdok.nl/beta); dat pad gebruikt `publishBeta` niet meer.
 
 ## Development
 

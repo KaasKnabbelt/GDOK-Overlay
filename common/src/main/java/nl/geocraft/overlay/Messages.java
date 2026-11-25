@@ -170,8 +170,9 @@ public final class Messages {
     // Update-bericht (zie UpdateCheckCore). Tekst-delen zonder click-event; het klikbare label
     // wordt per loader gebouwd, want ClickEvent is per mapping anders.
 
-    public static String updateAvailableIntro() {
-        return "§eEr is een nieuwe versie beschikbaar: ";
+    /** @param beta de nieuwe versie is een beta (alleen wie zelf een beta draait krijgt die te zien) */
+    public static String updateAvailableIntro(boolean beta) {
+        return beta ? "§eEr is een nieuwe beta beschikbaar: " : "§eEr is een nieuwe versie beschikbaar: ";
     }
 
     public static String updateAvailableLatest(String latest) {

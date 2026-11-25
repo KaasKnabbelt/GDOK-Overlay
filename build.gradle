@@ -1,6 +1,6 @@
 // Root project properties shared by all subprojects
 ext {
-    mod_version = '1.2.1'
+    mod_version = '1.2.1-beta.1'
     maven_group = 'nl.geocraft'
     archives_base_name = 'GDOK-Overlay'
 }
@@ -29,6 +29,40 @@ def jarNameFor(Project mod) {
     "${archives_base_name}-${mod_version}+mc${mod.minecraft_version}.jar"
 }
 
+// De kern van een versie als getallen: '1.2.1-beta.2' en '1.2.1' geven allebei [1, 2, 1].
+def versionCore(String version) {
+    version.tokenize('+')[0].tokenize('-')[0].tokenize('.').collect { it.isInteger() ? it.toInteger() : 0 }
+}
+
+// <0, 0 of >0: de kern van a tegenover die van b, numeriek per onderdeel.
+def compareCores(String a, String b) {
+    def pa = versionCore(a), pb = versionCore(b)
+    for (int i = 0; i < Math.max(pa.size(), pb.size()); i++) {
+        int c = (i < pa.size() ? pa[i] : 0) <=> (i < pb.size() ? pb[i] : 0)
+        if (c != 0) return c
+    }
+    return 0
+}
+
+// Haalt de jars van de open beta uit <downloads>: wat in beta-info.json staat. Alleen jars van
+// een pre-release (een '-' in de versie) en nooit een jar die in keep staat.
+def removeBetaJars(File downloads, Set keep = [] as Set) {
+    def betaFile = new File(downloads, 'beta-info.json')
+    if (!betaFile.isFile()) return
+    def beta = new groovy.json.JsonSlurper().parse(betaFile, 'UTF-8')
+    if (!beta?.version?.toString()?.contains('-')) return
+    (beta.files ?: []).collect { it.filename?.toString() }.findAll { it && it.endsWith('.jar') && !keep.contains(it) }.each { name ->
+        def jar = new File(downloads, new File(name).name)
+        if (jar.isFile() && jar.delete()) println "weggehaald: ${jar.name}"
+    }
+}
+
+// De releasenotes van mod_version uit changelog.txt: één punt per regel, regels met # tellen niet mee.
+def changelogLines() {
+    def f = rootProject.file('changelog.txt')
+    f.isFile() ? f.readLines('UTF-8').collect { it.trim() }.findAll { it && !it.startsWith('#') } : []
+}
+
 def modInfoFile = layout.buildDirectory.file('mod-info.json')
 
 // Genereert build/mod-info.json, het bestand dat gdok.nl/downloads en de in-game UpdateChecker
@@ -37,6 +71,7 @@ def modInfoFile = layout.buildDirectory.file('mod-info.json')
 // deze task aan te raken. De java-regel houdt het formaat ">= 21 (1.21.11) / >= 25 (26.2)":
 // één "eis (mcversie)"-paar per versie, gescheiden door " / ", want downloads.blade.php
 // parseert precies dat voor de Java-hint per versie in de installatiehandleiding.
+// changelog zijn de releasenotes uit changelog.txt, voor het tabblad Changelog op de site.
 tasks.register('generateModInfo') {
     description = 'Schrijft build/mod-info.json op basis van de Minecraft-modules.'
     dependsOn mcModules().collect { ":${it.name}:build" }
@@ -54,7 +89,8 @@ tasks.register('generateModInfo') {
             description   : 'Visualiseert je metingen, BGT-omtrekken en bomenplannen vanuit de GDOK Viewer als overlay in Minecraft. De mod verbindt via een WebSocket-bridge met de webviewer zodat je real-time feedback krijgt in-game.',
             dependencies  : [
                 [name: 'Fabric API', url: 'https://modrinth.com/mod/fabric-api']
-            ]
+            ],
+            changelog     : changelogLines()
         ]))
         def out = modInfoFile.get().asFile
         out.parentFile.mkdirs()
@@ -65,9 +101,9 @@ tasks.register('generateModInfo') {
 
 // Zet een release in de gdok-repo: de jars van alle modules + mod-info.json naar
 // <siteDir>/public/downloads/. Is de versie die daar nu staat een andere dan mod_version, dan
-// gaat die oude versie automatisch vooraan in mod-legacy.json (alleen version/released/files,
-// zoals de bestaande entries), zodat de downloadpagina hem onder "Versiegeschiedenis" blijft
-// tonen. Oude jars blijven staan: daar wijzen de legacy-links naar. Dezelfde versie opnieuw
+// gaat die oude versie automatisch vooraan in mod-legacy.json (version/released/files en, als
+// die er zijn, de releasenotes in changelog), zodat de downloadpagina hem in Versies en
+// Changelog blijft tonen. Oude jars blijven staan: daar wijzen de legacy-links naar. Dezelfde versie opnieuw
 // publiceren overschrijft alleen de jars en mod-info.json en raakt de legacy-lijst niet aan.
 //
 //   ./gradlew publishToSite                 (siteDir = ../gdok)
@@ -77,8 +113,8 @@ tasks.register('publishToSite') {
     dependsOn 'generateModInfo'
 
     doLast {
-        // Een pre-release (1.1.2-beta.N) hoort nooit in de publieke downloads: /downloads en de
-        // in-game update-check van 1.1.1 zouden hem dan aan iedereen aanbieden. Zie publishBeta.
+        // Een pre-release (1.2.1-beta.N) hoort nooit in mod-info.json: /downloads en de in-game
+        // update-check zouden hem dan aan iedereen aanbieden, ook aan wie geen beta wil. Zie publishBeta.
         if (mod_version.contains('-')) {
             throw new GradleException("mod_version ${mod_version} is een pre-release: gebruik publishBeta, niet publishToSite.")
         }
@@ -106,11 +142,13 @@ tasks.register('publishToSite') {
             if (already) {
                 println "mod-legacy.json: ${current.version} stond er al in, niet nogmaals toegevoegd"
             } else {
-                legacy.versions.add(0, [
+                def old = [
                     version : current.version,
                     released: current.released,
                     files   : current.files.collect { [filename: it.filename, minecraft: it.minecraft] },
-                ])
+                ]
+                if (current.changelog) old.changelog = current.changelog.collect { it.toString() }
+                legacy.versions.add(0, old)
                 legacyFile.setText(groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(legacy)) + '\n', 'UTF-8')
                 println "mod-legacy.json: ${current.version} vooraan toegevoegd"
             }
@@ -122,32 +160,58 @@ tasks.register('publishToSite') {
         }
         copy { from modInfoFile; into downloads }
         println "gekopieerd: mod-info.json (${mod_version})"
+
+        // Een open beta die deze release inhaalt (1.2.1-beta.N bij 1.2.1, of ouder) gaat weg:
+        // wie hem draait krijgt de melding over deze versie uit mod-info.json. Een beta van een
+        // volgende versie (1.2.2-beta.1) blijft staan.
+        def betaFile = new File(downloads, 'beta-info.json')
+        if (betaFile.isFile()) {
+            def beta = slurper.parse(betaFile, 'UTF-8')
+            if (beta?.version && compareCores(beta.version.toString(), mod_version) <= 0) {
+                removeBetaJars(downloads)
+                betaFile.delete()
+                println "beta-info.json: beta ${beta.version} is ingehaald door ${mod_version} en weggehaald"
+            } else {
+                println "beta-info.json: beta ${beta?.version} blijft staan (nieuwer dan ${mod_version})"
+            }
+        }
         println "Klaar. Controleer de diff in ${siteDir.canonicalPath} en commit + deploy daar."
     }
 }
 
-// Zet een beta (BOMEN.md §3.2) in de gdok-repo: de jars + beta-info.json naar <siteDir>/beta/mod/.
-// Die map ligt buiten public/, dus de jars zijn alleen te halen via /beta/download/{bestand}
-// (achter de beta-code), en ze komen niet in mod-info.json of mod-legacy.json. Jars van
-// eerdere beta's worden weggehaald: /beta toont alleen de huidige, de git-geschiedenis houdt de rest.
-// De changelog komt uit beta-changelog.txt (één punt per regel).
+// Zet een open beta in de gdok-repo: de jars + beta-info.json naar <siteDir>/public/downloads/,
+// naast mod-info.json. mod-info.json en mod-legacy.json blijven zoals ze zijn, dus /downloads
+// houdt de gewone versie als hoofddownload en toont de beta er apart bij, en wie een gewone
+// versie draait krijgt in-game geen melding (UpdateCheckCore leest beta-info.json alleen als
+// de eigen versie een beta is). De jars van de vorige beta worden weggehaald: er is er altijd
+// maar één. De releasenotes komen uit changelog.txt (één punt per regel).
+//
+// Tot 1 november 2026 was de beta gesloten en ging dit naar beta/mod/ buiten public/, achter
+// een testercode; een open beta staat gewoon in de downloads.
 //
 //   ./gradlew publishBeta                 (siteDir = ../gdok)
 //   ./gradlew publishBeta -PsiteDir=/pad/naar/gdok
 tasks.register('publishBeta') {
-    description = 'Kopieert de beta-jars en beta-info.json naar beta/mod/ in de gdok-repo.'
+    description = 'Kopieert de beta-jars en beta-info.json naar public/downloads/ in de gdok-repo.'
     dependsOn mcModules().collect { ":${it.name}:build" }
 
     doLast {
         if (!mod_version.contains('-')) {
-            throw new GradleException("publishBeta is voor pre-releases (bijv. 1.1.2-beta.1); mod_version is ${mod_version}.")
+            throw new GradleException("publishBeta is voor pre-releases (bijv. 1.2.1-beta.1); mod_version is ${mod_version}.")
         }
         def siteDir = file(findProperty('siteDir') ?: '../gdok')
-        if (!new File(siteDir, 'public/downloads').isDirectory()) {
-            throw new GradleException("Geen gdok-repo gevonden op ${siteDir.canonicalPath}. Geef de map mee met -PsiteDir=...")
+        def downloads = new File(siteDir, 'public/downloads')
+        if (!downloads.isDirectory()) {
+            throw new GradleException("Geen gdok-repo gevonden op ${siteDir.canonicalPath} (map public/downloads ontbreekt). Geef de map mee met -PsiteDir=...")
         }
-        def betaDir = new File(siteDir, 'beta/mod')
-        betaDir.mkdirs()
+
+        // Een beta moet vóór de gewone versie uit zijn: 1.2.1-beta.1 naast een gewone 1.2.1 (of
+        // hoger) zou op de site nooit te zien zijn en door niemand als update gezien worden.
+        def currentFile = new File(downloads, 'mod-info.json')
+        def current = currentFile.isFile() ? new groovy.json.JsonSlurper().parse(currentFile, 'UTF-8') : null
+        if (current?.version && compareCores(mod_version, current.version.toString()) <= 0) {
+            throw new GradleException("Beta ${mod_version} is niet nieuwer dan de gewone versie ${current.version} in mod-info.json.")
+        }
 
         def mods = mcModules()
         def jars = mods.collect { mod ->
@@ -155,27 +219,20 @@ tasks.register('publishBeta') {
             if (!jar.isFile()) throw new GradleException("Jar ontbreekt: ${jar} (draai eerst 'gradlew build')")
             jar
         }
-        def current = jars.collect { it.name } as Set
-        betaDir.listFiles().findAll { it.name.endsWith('.jar') && !current.contains(it.name) }.each {
-            it.delete()
-            println "weggehaald: ${it.name}"
-        }
+        removeBetaJars(downloads, jars.collect { it.name } as Set)
         jars.each { jar ->
-            copy { from jar; into betaDir }
+            copy { from jar; into downloads }
             println "gekopieerd: ${jar.name}"
         }
 
-        def changelogFile = rootProject.file('beta-changelog.txt')
-        def changelog = changelogFile.isFile()
-                ? changelogFile.readLines('UTF-8').collect { it.trim() }.findAll { it && !it.startsWith('#') }
-                : []
+        def changelog = changelogLines()
         def info = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson([
             version  : mod_version,
             released : new Date().format('yyyy-MM-dd'),
             files    : mods.collect { [filename: jarNameFor(it), minecraft: it.minecraft_version] },
             changelog: changelog,
         ]))
-        new File(betaDir, 'beta-info.json').setText(info + '\n', 'UTF-8')
+        new File(downloads, 'beta-info.json').setText(info + '\n', 'UTF-8')
         println "beta-info.json: ${mod_version}, ${changelog.size()} regels changelog"
         println "Klaar. Controleer de diff in ${siteDir.canonicalPath}, commit en deploy daar (deploy.sh --code)."
     }
